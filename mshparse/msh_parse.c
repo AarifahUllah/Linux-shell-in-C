@@ -1,5 +1,18 @@
 #include <msh_parse.h>
 
+//define msh's structs
+struct msh_sequence{
+
+};
+
+struct msh_pipeline{
+
+};
+
+struct msh_command{
+
+};
+
 void
 msh_pipeline_free(struct msh_pipeline *p)
 {
