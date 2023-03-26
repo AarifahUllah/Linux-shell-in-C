@@ -1,34 +1,58 @@
 #include <msh_parse.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 //define msh's structs
-struct msh_sequence{
-
-};
-
-struct msh_pipeline{
-
-};
-
 struct msh_command{
-
+	char* msh_command_arguments[MSH_MAXARGS + 2]; //plus 1 for the command/program itself plus 1 for NULL termination
+	bool msh_command_last; //boolean flag for last command (msh_final_command())
 };
 
+//a pipeline is a set of commands
+//a struct array of msh_commands
+//of length MSH_MAXCMNDS
+struct msh_pipeline{
+	struct msh_command msh_pipeline_commands[MSH_MAXCMNDS];
+};
+
+//a sequence is a set of pipelines
+//1 foreground pipeline and a maximum
+//of MSH_MAXBACKGROUND amount of background pipelines
+struct msh_sequence{
+	struct msh_pipeline msh_sequence_pipelines[MSH_MAXBACKGROUND + 1];
+};
+
+//free the passed in pipeline
 void
 msh_pipeline_free(struct msh_pipeline *p)
 {
-	(void)p;
+	free(p);
 }
 
 void
 msh_sequence_free(struct msh_sequence *s)
 {
-	(void)s;
+	//free internal structures for remaining pipelines
+	//some pipelines were already freed by msh_pipeline_free
+	
+	free(s);
 }
 
 struct msh_sequence *
 msh_sequence_alloc(void)
 {
-	return NULL;
+	//allocate space w/ calloc for msh_sequence
+	struct msh_sequence * s = calloc(1, sizeof(struct msh_sequence));
+
+	//calloc() fails in allocating memory for the sequence
+	if(s == NULL)
+	{
+		printf("msh_sequence_alloc: calloc() failure\n");
+		return NULL;
+	}
+
+	return s;
 }
 
 char *
