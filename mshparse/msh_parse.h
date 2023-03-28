@@ -17,7 +17,7 @@
 struct msh_sequence *msh_sequence_alloc(void);
 
 /**
- * `msh_pipeline_parse` takes the command string, parses it, and
+ * `msh_sequence_parse` takes the command string, parses it, and
  * inserts pipelines therein into the sequence queue.
  *
  * - `@str` - the string holding pipelines and commands. This function
