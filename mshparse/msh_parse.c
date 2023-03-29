@@ -35,13 +35,16 @@ struct msh_sequence{
 void
 msh_pipeline_free(struct msh_pipeline *p)
 {
+	free(p->pipe); //free pointer to pipe
+
 	int i;
 	for (i = 0; i < MSH_MAXCMNDS; i++)
 	{
 		if(p->pipeline_commands[i] != NULL)
 		{			
 			free(p->pipeline_commands[i]->command); //free the command pointer
-			unsigned int j;
+			
+			int j;
 			for(j = 0; j < (MSH_MAXARGS + 1); j++)
 			{
 				if(p->pipeline_commands[i]->comm_arguments[j] != NULL)
@@ -52,7 +55,6 @@ msh_pipeline_free(struct msh_pipeline *p)
 			free(p->pipeline_commands[i]); //free the command
 		}
 	}
-	free(p->pipe); //free pointer to pipe
 
 	free(p); //free overall pipeline struct
 }
@@ -105,14 +107,38 @@ msh_pipeline_input(struct msh_pipeline *p)
 msh_err_t
 msh_sequence_parse(char *str, struct msh_sequence *seq)
 {
+	int index = 0;
 	char *token, *ptr; 
 	char *str_copy = malloc(strlen(str) + 1);
 	strcpy(str_copy, str);
 	for(token = strtok_r(str_copy, ";", &ptr); token != NULL; token = strtok_r(NULL, ";", &ptr))
 	{
+		//error checking for pipelines
+		int error = 0;
+		int i;
+		for (i = 0; i < (int)strlen(token); i++)
+		{
+			if(token[i] == '|' && error == 0)
+			{
+				free(str_copy);
+				printf("MSH Error: %s\n", msh_pipeline_err2str(-8));
+				return -8;
+			}
+
+			else if(token[i] != ' ')
+			{
+				error = 1;
+			}
+		}
+
+		if(token[strlen(token) - 1] == '|')
+		{
+			free(str_copy);
+			printf("MSH Error: %s\n", msh_pipeline_err2str(-8));
+			return -8;
+		}
 		
-		//insert each token into sequence
-		int index = 0; //keep track of index in struct sequence, the array of pipelines
+		//allocate pipelines
 		seq->sequence_pipelines[index] = calloc(1, sizeof(struct msh_pipeline));
 		seq->sequence_pipelines[index]->pipe = strdup(token); //put token into sequence
 
@@ -136,9 +162,38 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 		for(tok = strtok_r(token_copy, "|", &tok_ptr); tok != NULL; tok = strtok_r(tok_ptr, "|", &tok_ptr))
 		{
 			//error checking related to commands
+			int err = 0;
+			int i;
+			for(i = 0; i < (int) strlen(tok); i++)
+			{
+				if(tok[i] != ' ')
+				{
+					err = 1;
+				}
+			}
+
+			if(err == 0)
+			{
+				seq->seq_pipeline_count++;
+				free(str_copy);
+				free(token_copy);
+				printf("MSH Error: %s\n", msh_pipeline_err2str(-8));
+				return -8;
+			}
+
+			if(seq->sequence_pipelines[index]->pipeline_comm_count > MSH_MAXCMNDS)
+			{
+				seq->seq_pipeline_count++;
+				free(str_copy);
+				free(token_copy);
+				printf("MSH Error: %s\n", msh_pipeline_err2str(-7));
+				return -7;
+			}
 
 			//allocate commands
 			seq->sequence_pipelines[index]->pipeline_commands[command_counter] = calloc(1, sizeof(struct msh_command));
+
+			seq->sequence_pipelines[index]->pipeline_commands[command_counter]->command_last = false;
 
 			seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count = 1;
 
@@ -150,12 +205,23 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 			for(_token = strtok_r(tok_copy, " ", &_ptr); _token != NULL; _token = strtok_r(_ptr, " ", &_ptr))
 			{
 				//error checking related to arguments
+				if(seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count > (MSH_MAXARGS + 1))
+				{
+					seq->seq_pipeline_count++;
+					free(str_copy);
+					free(token_copy);
+					free(tok_copy);
+					printf("MSH Error: %s\n", msh_pipeline_err2str(-6));
+					return -6;
+				}
 
 				//allocate arguments
 				if(arguments_counter == 0)
 				{
-					seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_arguments[arguments_counter] = strdup(_token);
+					seq->sequence_pipelines[index]->pipeline_commands[command_counter]->command = strdup(_token);
 				}
+
+				seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_arguments[arguments_counter] = strdup(_token);
 
 				seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count += 1;
 
