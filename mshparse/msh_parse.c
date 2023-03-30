@@ -378,7 +378,7 @@ msh_command_program(struct msh_command *c)
 	return c->command;
 }
 
-//return the null-terminated array of arguments for a command
+//return the null-terminated array of arguments for the given command
 char **
 msh_command_args(struct msh_command *c)
 {
