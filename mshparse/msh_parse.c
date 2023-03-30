@@ -59,6 +59,9 @@ msh_pipeline_free(struct msh_pipeline *p)
 	free(p); //free overall pipeline struct
 }
 
+//deallocate the entire sequence except
+//the piepelines that have already been removed
+//using msh_sequence_pipeline
 void
 msh_sequence_free(struct msh_sequence *s)
 {
@@ -77,6 +80,7 @@ msh_sequence_free(struct msh_sequence *s)
 	free(s); //free outer sequence structure
 }
 
+//allocate the sequence structure
 struct msh_sequence *
 msh_sequence_alloc(void)
 {
@@ -97,19 +101,30 @@ msh_sequence_alloc(void)
 	return s;
 }
 
-
+//return the passed in pipeline's input
+//that was used to make that pipeline in the first place
 char *
 msh_pipeline_input(struct msh_pipeline *p)
 {
 	return p->pipe;
 }
 
+//takes a string that has pipelines and commands
+//and puts them into the given sequence  
 msh_err_t
 msh_sequence_parse(char *str, struct msh_sequence *seq)
 {
-	int index = 0;
+	int index = 0; //current position in sequence, which is an array of struct pipelines
 	char *token, *ptr; 
 	char *str_copy = malloc(strlen(str) + 1);
+
+	//malloc() failure
+	if(str_copy == NULL)
+	{
+		printf("MSH Error: %s\n", msh_pipeline_err2str(-5));
+		return -5;
+	}
+
 	strcpy(str_copy, str);
 	for(token = strtok_r(str_copy, ";", &ptr); token != NULL; token = strtok_r(NULL, ";", &ptr))
 	{
@@ -140,6 +155,14 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 		
 		//allocate pipelines
 		seq->sequence_pipelines[index] = calloc(1, sizeof(struct msh_pipeline));
+
+		//calloc() failure
+		if(seq->sequence_pipelines[index] == NULL)
+		{
+			free(str_copy);
+			printf("MSH Error: %s\n", msh_pipeline_err2str(-5));
+			return -5;
+		}
 		seq->sequence_pipelines[index]->pipe = strdup(token); //put token into sequence
 
 		//check whether to run the pipeline in the background
@@ -156,6 +179,14 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 
 		int command_counter = 0; //counter for number of commands
 		char * token_copy = malloc(strlen(token) + 1);
+
+		//malloc() failure
+		if(token_copy == NULL)
+		{
+			free(str_copy);
+			printf("MSH Error: %s\n", msh_pipeline_err2str(-5));
+			return -5;
+		}
 		strcpy(token_copy, token);
 
 		char *tok, *tok_ptr;
@@ -193,12 +224,30 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 			//allocate commands
 			seq->sequence_pipelines[index]->pipeline_commands[command_counter] = calloc(1, sizeof(struct msh_command));
 
+			//calloc() allocation failure
+			if(seq->sequence_pipelines[index]->pipeline_commands[command_counter] == NULL)
+			{
+				free(str_copy);
+				free(token_copy);
+				printf("MSH Error: %s\n", msh_pipeline_err2str(-5));
+				return -5;
+			}
+
 			seq->sequence_pipelines[index]->pipeline_commands[command_counter]->command_last = false;
 
 			seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count = 1;
 
 			int arguments_counter = 0; //counter for number of arguments
 			char *tok_copy = malloc(strlen(tok) + 1);
+
+			//malloc() failure
+			if(tok_copy == NULL)
+			{
+				free(str_copy);
+				free(token_copy);
+				printf("MSH Error: %s\n", msh_pipeline_err2str(-5));
+				return -5;
+			}
 			strcpy(tok_copy, tok);
 
 			char* _token, *_ptr;
@@ -223,9 +272,9 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 
 				seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_arguments[arguments_counter] = strdup(_token);
 
-				seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count += 1;
+				seq->sequence_pipelines[index]->pipeline_commands[command_counter]->comm_args_count++;
 
-				arguments_counter += 1;
+				arguments_counter++;
 			}
 			seq->sequence_pipelines[index]->pipeline_comm_count++;
 
@@ -243,9 +292,11 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 		free(token_copy);
 	}
 	free(str_copy);
-	return 0;
+	return 0; //success
 }
 
+//dequeues the first pipeline in sequence
+//return pointer to the nth command in the pipeline
 struct msh_pipeline *
 msh_sequence_pipeline(struct msh_sequence *s)
 {
@@ -256,25 +307,25 @@ msh_sequence_pipeline(struct msh_sequence *s)
 	}
 
 	//allocate new space
-	struct msh_pipeline *pipeline = malloc(sizeof(struct msh_pipeline));
+	struct msh_pipeline *p = malloc(sizeof(struct msh_pipeline));
 
 	//malloc() memory allocation failure
-	if(pipeline == NULL)
+	if(p == NULL)
 	{
 		printf("msh_sequence_pipeline: malloc() failure\n");
 		return NULL;
 	}
 
 	//copy sequence's pipeline to the newly allocated space
-	memcpy(pipeline, s->sequence_pipelines[s->cur], sizeof(struct msh_pipeline));
+	memcpy(p, s->sequence_pipelines[s->cur], sizeof(struct msh_pipeline));
 
 	free(s->sequence_pipelines[s->cur]); //dequeue pipeline from sequence
 
 	s->sequence_pipelines[s->cur] = NULL; //set the pipeline to NULL
 
-	s->cur += 1; //increment index
+	s->cur++; //increment index
 
-	return pipeline;
+	return p;
 }
 
 //returns the specified command in a pipeline
@@ -284,6 +335,8 @@ msh_pipeline_command(struct msh_pipeline *p, size_t nth)
 	return p->pipeline_commands[nth];
 }
 
+//returns 1 if the pipeline should be run in the background
+//returns 0 if not
 int
 msh_pipeline_background(struct msh_pipeline *p)
 {
@@ -295,6 +348,8 @@ msh_pipeline_background(struct msh_pipeline *p)
 	return 0;
 }
 
+//returns 1 if the command is the final
+//command or returns 0 if not
 int
 msh_command_final(struct msh_command *c)
 {
@@ -315,6 +370,7 @@ msh_command_file_outputs(struct msh_command *c, char **stdout, char **stderr)
 	(void)stderr;
 }
 
+//return the command's program
 char *
 msh_command_program(struct msh_command *c)
 {
@@ -322,6 +378,7 @@ msh_command_program(struct msh_command *c)
 	return c->command;
 }
 
+//return the null-terminated array of arguments for a command
 char **
 msh_command_args(struct msh_command *c)
 {
