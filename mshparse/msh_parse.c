@@ -383,6 +383,7 @@ char **
 msh_command_args(struct msh_command *c)
 {
 	return c->comm_arguments;
+	printf("msh_command:%s\n", *c->comm_arguments);
 }
 
 void
