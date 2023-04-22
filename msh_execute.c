@@ -66,6 +66,7 @@ msh_execute(struct msh_pipeline *p)
 		}*/
 
 		//more than one program with "|" separators:
+		//more than one program with "|" separators:
 
 		/*if(pipe(fds) == -1) //set up the pipe
 		{
@@ -105,11 +106,25 @@ msh_execute(struct msh_pipeline *p)
 
 			//the middle commands
 			if(i != 0)
+
+		pid = fork(); //fork process
+
+		if(pid == -1)
+		{
+			perror("forking process");
+			exit(EXIT_FAILURE);
+			return;
+		}
+		
+		else if(pid == 0)
+		{
+			//the first command && not the only command
+			if(i == 0 && msh_command_final(c) == 0)
 			{
 				//redirect STDOUT to write side of the pipe we just created.
 				/*if(close(STDIN_FILENO) == -1) //not reading
 				{
-					perror("close");
+					perror("parent dup stdin");
 					exit(EXIT_FAILURE);
 					return;
 				}
@@ -225,8 +240,51 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
     	case SIGCONT: {
 			break;
 		}
+				if (close(fds[0]) == -1)//not reading
+				{
+					perror("close");
+					exit(EXIT_FAILURE);
+					return;
+				}
+			}
+
+			//execute progam
+			execvp(program, args_list);
+			exit(EXIT_SUCCESS);
+		}
+
+		//reassign
+		carryover = fds[0];
+
+		if(close(fds[1]) == -1)
+		{
+				perror("close");
+				exit(EXIT_FAILURE);
+				return;
+		}
+			
+	} //outside for-loop
+
+	//if fds[1] doesn't use stdout then close
+	if (fds[1] != STDOUT_FILENO)
+	{
+		close(fds[1]);
+	
 	}
 
+	if(carryover != STDIN_FILENO)
+	{
+		close(carryover);
+	}
+	
+	//wait for all the commands
+	//note: wait is in order of execute
+	for(int i = 0; i < command_count; i++)
+	{
+		wait(NULL);
+	}
+	
+	msh_pipeline_free(p); //free the pipeline
 	return;
 }
 
