@@ -69,7 +69,6 @@ main(int argc, char *argv[])
 		while ((p = msh_sequence_pipeline(s)) != NULL) {
 			msh_execute(p);
 		}
-		free(str);
 	}
 	msh_sequence_free(s);
 
