@@ -54,21 +54,11 @@ main(int argc, char *argv[])
 		char *str;
 		struct msh_pipeline *p;
 		msh_err_t err;
-		printf("getting inout\n");
+
 		str = msh_input();
-		printf("str: %s\n", str);
 		if (!str) break; /* you must maintain this behavior: an empty command exits */
 
-		printf("line 62\n");
 		err = msh_sequence_parse(str, s);
-		int seq = s->seq_pipeline_count;
-		printf("sequence count%d\n", seq);
-		for (int i = 0; i < seq; i++)
-		{
-			int comm = s->sequence_pipelines[i]->pipeline_comm_count;
-			printf("command count:%d\n", comm);
-		}
-		printf("line 64\n");
 		if (err != 0) {
 			printf("MSH Error: %s\n", msh_pipeline_err2str(err));
 
@@ -79,7 +69,6 @@ main(int argc, char *argv[])
 		while ((p = msh_sequence_pipeline(s)) != NULL) {
 			msh_execute(p);
 		}
-		free(str);
 	}
 	msh_sequence_free(s);
 

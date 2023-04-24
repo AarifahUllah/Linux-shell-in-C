@@ -43,37 +43,24 @@ msh_execute(struct msh_pipeline *p)
 	char ** args_list; //arguments list
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
 	pid_t pid; //process ID
-	//int fds[2]; //set up the pipe
-	//int carryover = STDIN_FILENO;
+	int fds[2]; //set up the pipe
+	int carryover = fds[0];
 
-	printf("calling execute\n");
+	//STDIN = 0   fds[0] = read
+	//STDOUT = 1  fds[1] = write
+
 	for(int i = 0; i < command_count; i++) //iterate through every command
 	{
 		program = msh_command_program(p->pipeline_commands[i]);
 		c = msh_pipeline_command(p, i);
 		args_list = msh_command_args(c);
 
-		//there is only one command in the pipeline
-		/*if(command_count == 1)
-		{
-			//execute the one program
-			if(execvp(program, args_list)) //replaced with code for pwd, ls doesn't go to ./msh
-			{
-				perror("msh_execute: execvp");
-				exit(EXIT_FAILURE);
-			}
-			return; //not reached
-		}*/
-
-		//more than one program with "|" separators:
-		//more than one program with "|" separators:
-
-		/*if(pipe(fds) == -1) //set up the pipe
+		if(pipe(fds) == -1) //set up the pipe
 		{
 			perror("pipe creation, opening pipe");
 			exit(EXIT_FAILURE);
 			return;
-		}*/
+		}
 
 		pid = fork(); //fork process returns 0 or the id of child
 
@@ -83,139 +70,185 @@ msh_execute(struct msh_pipeline *p)
 			exit(EXIT_FAILURE);
 			return;
 		}
-		
+
 		else if(pid == 0)
 		{
+			//there is only one command
+			if(command_count == 1)
+			{
+				//just execute program, but
+				//close both of the file descriptors
+				if (close(fds[0]) == -1)
+				{
+					perror("read close failed");
+					exit(EXIT_FAILURE);
+				}
+
+				if(close(fds[1]) == -1)
+				{
+					perror("write close failed");
+					exit(EXIT_FAILURE);
+				}
+
+				//execute the one program
+				execvp(program, args_list);
+				perror("msh_execute: execvp");
+				exit(EXIT_FAILURE);
+			}
+
 			//the first command && not the only command
 			if(i == 0 && msh_command_final(c) == 0)
 			{
-				//replace with input side of the pipe
-				/*if(dup2(fds[1], STDOUT_FILENO) == -1)
+				//redirections
+				//first command
+				/*
+				1. close the STDOUT
+				2. DUP write end of pipe into STDOUT
+				3. close both of the file descriptors
+				4. exec
+				*/
+			
+				//1. close the STDOUT
+				if(close(STDOUT_FILENO) == -1)
 				{
-					perror("parent dup stdin");
 					exit(EXIT_FAILURE);
-					return;
-				}*/
-				/*if(dup2(fds[0], STDIN_FILENO) == -1)
+				}
+
+				//2. DUP write end of pipe into STDOUT
+				//redirect STDOUT to write side of the pipe we just created.
+				dup2(fds[1], STDOUT_FILENO);
+
+				dup2(fds[0], STDIN_FILENO);
+				
+				//set carryover
+				carryover = fds[0];
+
+				//3. close both of the file descriptors
+				if (close(fds[0]) == -1)
 				{
-					perror("parent dup stdin");
+					perror("read close failed");
 					exit(EXIT_FAILURE);
-					return;
-				}*/
+				}
+
+				if(close(fds[1]) == -1)
+				{
+					perror("write close failed");
+					exit(EXIT_FAILURE);
+				}
+
+				//4. execute program
+				execvp(program, args_list);
+				perror("exec failed"); //exec returns only if it fails
+				exit(EXIT_FAILURE);
 			}
 
 			//the middle commands
-			if(i != 0)
-
-		pid = fork(); //fork process
-
-		if(pid == -1)
-		{
-			perror("forking process");
-			exit(EXIT_FAILURE);
-			return;
-		}
-		
-		else if(pid == 0)
-		{
-			//the first command && not the only command
-			if(i == 0 && msh_command_final(c) == 0)
+			if(i != 0 && msh_command_final(c) == 0)
 			{
-				//redirect STDOUT to write side of the pipe we just created.
-				/*if(close(STDIN_FILENO) == -1) //not reading
+				//redirections
+				//close the STDIN
+				if(close(STDIN_FILENO) == -1)
 				{
-					perror("parent dup stdin");
 					exit(EXIT_FAILURE);
-					return;
 				}
 
-				if(dup2(carryover, STDIN_FILENO) == -1)
+				if(close(STDOUT_FILENO) == -1)
 				{
-					perror("child dup stdin");
 					exit(EXIT_FAILURE);
-					return;
 				}
 
-				if (close(fds[0]) == -1)//not reading
-				{
-					perror("close");
-					exit(EXIT_FAILURE);
-					return;
-				}*/
-			}
+				dup2(carryover, STDIN_FILENO);
 
-			//not the last command
-			if(msh_command_final(c) == 0)
-			{
-				/*close(STDOUT_FILENO);
+				dup2(fds[1], STDOUT_FILENO);
 
-				//replace with input side of the pipe
-				if(dup2(fds[1], STDOUT_FILENO) == -1)
+				//set carryover
+				carryover = fds[0];
+
+				//close both of the file descriptors
+				if (close(fds[0]) == -1)
 				{
-					perror("child dup stdout");
+					perror("read close failed");
 					exit(EXIT_FAILURE);
-					return;
 				}
 
-				if (close(fds[0]) == -1)//not reading
+				if(close(fds[1]) == -1)
 				{
-					perror("close");
+					perror("write close failed");
 					exit(EXIT_FAILURE);
-					return;
-				}*/
-			}
+				}
 
-			//execute progam, no code runs after
-			execvp(program, args_list);
-			perror("exec failed"); //exec returns only if it fails
-			exit(EXIT_FAILURE);
-		}
-		printf("created child process with pid:%d\n", pid);
-
-		//reassign
-		/*carryover = fds[0];
-
-		if(close(fds[1]) == -1)
-		{
-				perror("close");
+				//execute program
+				execvp(program, args_list);
+				perror("exec failed"); //exec returns only if it fails
 				exit(EXIT_FAILURE);
-				return;
-		}*/
-			
+			}
+
+			//the last command
+			if(msh_command_final(c) == 1)
+			{
+				//redirections
+				//1. close the STDIN
+				if (close(STDIN_FILENO) == -1)
+				{
+					exit(EXIT_FAILURE);
+				}
+				//2. Dup read end of pipe into STDIN
+				dup2(carryover, STDIN_FILENO);
+
+				//close both of the file descriptors
+				if (close(fds[0]) == -1)
+				{
+					perror("read close failed");
+					exit(EXIT_FAILURE);
+				}
+
+				if(close(fds[1]) == -1)
+				{
+					perror("write close failed");
+					exit(EXIT_FAILURE);
+				}
+
+				//execute program
+				execvp(program, args_list);
+				perror("exec failed"); //exec returns only if it fails
+				exit(EXIT_FAILURE);
+			}
+
+			/* second command, 1 of two
+			1.close the STDIN
+			2. Dup read end of pipe into STDIN
+			3. close both file descriptors
+			4. exec
+			*/
+
+		}
+		//printf("created child process with pid:%d\n", pid);			
 	} //outside for-loop
-
-	//if fds[1] doesn't use stdout then close
-	/*if (fds[1] != STDOUT_FILENO)
-	{
-		close(fds[1]);
 	
-	}
-
-	if(carryover != STDIN_FILENO)
-	{
-		close(carryover);
-	}*/
-	
-	//wait for all the commands
-	//note: wait is in order of execute
+	//wait for all the commands, but not & commands
 	for(int i = 0; i < command_count; i++)
 	{
-		int pid = wait(NULL);
-		printf("188: wait return pid:%d\n", pid);
+		//do not wait for background commands
+		if(msh_pipeline_background(p) == 0)
+		{
+			wait(NULL);
+		}
 	}
 	
 	msh_pipeline_free(p); //free the pipeline
 	return;
 }
 
-/*void
+void
 sig_handler(int signal_number, siginfo_t *info, void *context)
 {
+	(void) info;
+	(void) context;
 	switch(signal_number){
 		//the child process has terminated
 		case SIGCHLD: {
-			printf("%d: Child process %d has exited.\n", getpid(), info->si_pid);
-			fflush(stdout);
+			//printf("%d: Child process %d has exited.\n", getpid(), info->si_pid);
+			//fflush(stdout);
 			break;
 		}
 		//terminate a process, sent to pipeline processes
@@ -232,60 +265,16 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			fflush(stdout);
 			break;
 		}
-		//terminate a foreground process with cntl-c
+		//terminate foreground processes with cntl-c
 		case SIGINT: {
+			//printf("%d:Terminate foreground process\n", getpid());
 			break;
 		}
 		//run a background command to foreground - user typed 'fg'
     	case SIGCONT: {
 			break;
 		}
-				if (close(fds[0]) == -1)//not reading
-				{
-					perror("close");
-					exit(EXIT_FAILURE);
-					return;
-				}
-			}
-
-			//execute progam
-			execvp(program, args_list);
-			exit(EXIT_SUCCESS);
-		}
-
-		//reassign
-		carryover = fds[0];
-
-		if(close(fds[1]) == -1)
-		{
-				perror("close");
-				exit(EXIT_FAILURE);
-				return;
-		}
-			
-	} //outside for-loop
-
-	//if fds[1] doesn't use stdout then close
-	if (fds[1] != STDOUT_FILENO)
-	{
-		close(fds[1]);
-	
 	}
-
-	if(carryover != STDIN_FILENO)
-	{
-		close(carryover);
-	}
-	
-	//wait for all the commands
-	//note: wait is in order of execute
-	for(int i = 0; i < command_count; i++)
-	{
-		wait(NULL);
-	}
-	
-	msh_pipeline_free(p); //free the pipeline
-	return;
 }
 
 void
@@ -308,19 +297,17 @@ setup_signal(int signo, void (*fn)(int, siginfo_t *, void *))
 		perror("sigaction error");
 		exit(EXIT_FAILURE);
 	}
-}*/
+}
 
-//M2: set up signal handlers here
+//set up signal handlers here
 void
 msh_init(void)
 {
-	/*
-	 * The signal information is inherited across a fork,
-	 * and is set the same for the parent and child.
-	 */
-
-	//setup_signal(SIGCHLD, sig_handler);
-	//setup_signal(SIGTERM, sig_handler);
+	setup_signal(SIGCHLD, sig_handler);
+	setup_signal(SIGTERM, sig_handler);
+	setup_signal(SIGTSTP, sig_handler);
+	setup_signal(SIGINT, sig_handler);
+	setup_signal(SIGCONT, sig_handler);
 
 	return;
 }
