@@ -118,10 +118,8 @@ msh_execute(struct msh_pipeline *p)
 				//redirect STDOUT to write side of the pipe we just created.
 				dup2(fds[1], STDOUT_FILENO);
 
-				dup2(fds[0], STDIN_FILENO);
+				//dup2(fds[0], STDIN_FILENO);
 				
-				//set carryover
-				carryover = fds[0];
 
 				//3. close both of the file descriptors
 				if (close(fds[0]) == -1)
@@ -138,8 +136,9 @@ msh_execute(struct msh_pipeline *p)
 
 				//4. execute program
 				execvp(program, args_list);
-				perror("exec failed"); //exec returns only if it fails
-				exit(EXIT_FAILURE);
+
+				//set carryover
+				carryover = fds[0];
 			}
 
 			//the middle commands
@@ -152,17 +151,12 @@ msh_execute(struct msh_pipeline *p)
 					exit(EXIT_FAILURE);
 				}
 
+				dup2(carryover, STDIN_FILENO);
+
 				if(close(STDOUT_FILENO) == -1)
 				{
 					exit(EXIT_FAILURE);
 				}
-
-				dup2(carryover, STDIN_FILENO);
-
-				dup2(fds[1], STDOUT_FILENO);
-
-				//set carryover
-				carryover = fds[0];
 
 				//close both of the file descriptors
 				if (close(fds[0]) == -1)
@@ -176,11 +170,18 @@ msh_execute(struct msh_pipeline *p)
 					perror("write close failed");
 					exit(EXIT_FAILURE);
 				}
+				if(close(carryover) == -1)
+				{
+					exit(EXIT_FAILURE);
+				}
+
+				dup2(fds[1], STDOUT_FILENO);
 
 				//execute program
 				execvp(program, args_list);
-				perror("exec failed"); //exec returns only if it fails
-				exit(EXIT_FAILURE);
+
+				//set carryover
+				carryover = fds[0];
 			}
 
 			//the last command
@@ -195,7 +196,7 @@ msh_execute(struct msh_pipeline *p)
 				//2. Dup read end of pipe into STDIN
 				dup2(carryover, STDIN_FILENO);
 
-				//close both of the file descriptors
+				//close the file descriptors
 				if (close(fds[0]) == -1)
 				{
 					perror("read close failed");
@@ -208,10 +209,13 @@ msh_execute(struct msh_pipeline *p)
 					exit(EXIT_FAILURE);
 				}
 
+				if(close(carryover) == -1)
+				{
+					exit(EXIT_FAILURE);
+				}
+
 				//execute program
 				execvp(program, args_list);
-				perror("exec failed"); //exec returns only if it fails
-				exit(EXIT_FAILURE);
 			}
 
 			/* second command, 1 of two
@@ -220,20 +224,31 @@ msh_execute(struct msh_pipeline *p)
 			3. close both file descriptors
 			4. exec
 			*/
-
+		else
+		{
+			//wait for all the commands, but not & commands
+			for(int i = 0; i < command_count; i++)
+			{
+				//do not wait for background commands
+				if(msh_pipeline_background(p) == 0)
+				{
+					wait(NULL);
+				}
+			}
 		}
-		//printf("created child process with pid:%d\n", pid);			
+
+		}			
 	} //outside for-loop
 	
 	//wait for all the commands, but not & commands
-	for(int i = 0; i < command_count; i++)
+	/*for(int i = 0; i < command_count; i++)
 	{
 		//do not wait for background commands
 		if(msh_pipeline_background(p) == 0)
 		{
 			wait(NULL);
 		}
-	}
+	}*/
 	
 	msh_pipeline_free(p); //free the pipeline
 	return;
@@ -265,9 +280,11 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			fflush(stdout);
 			break;
 		}
-		//terminate foreground processes with cntl-c
+		//terminate all foreground processes with cntl-c
 		case SIGINT: {
 			//printf("%d:Terminate foreground process\n", getpid());
+
+			printf("\n");
 			break;
 		}
 		//run a background command to foreground - user typed 'fg'
