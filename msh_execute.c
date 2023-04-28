@@ -44,7 +44,7 @@ msh_execute(struct msh_pipeline *p)
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
 	pid_t pid; //process ID
 	int fds[2]; //set up the pipe
-	int carryover = fds[0];
+	int carryover = 0;
 
 	//STDIN = 0   fds[0] = read
 	//STDOUT = 1  fds[1] = write
@@ -55,11 +55,13 @@ msh_execute(struct msh_pipeline *p)
 		c = msh_pipeline_command(p, i);
 		args_list = msh_command_args(c);
 
-		if(pipe(fds) == -1) //set up the pipe
+		if(i < (command_count - 1))
 		{
-			perror("pipe creation, opening pipe");
-			exit(EXIT_FAILURE);
-			return;
+			if(pipe(fds) == -1) //set up the pipe
+			{
+				perror("pipe creation, opening pipe");
+				exit(EXIT_FAILURE);
+			}
 		}
 
 		pid = fork(); //fork process returns 0 or the id of child
@@ -68,187 +70,48 @@ msh_execute(struct msh_pipeline *p)
 		{
 			perror("forking failed");
 			exit(EXIT_FAILURE);
-			return;
 		}
 
 		else if(pid == 0)
 		{
-			//there is only one command
-			if(command_count == 1)
+			if(carryover != 0)
 			{
-				//just execute program, but
-				//close both of the file descriptors
-				if (close(fds[0]) == -1)
-				{
-					perror("read close failed");
-					exit(EXIT_FAILURE);
-				}
+				dup2(carryover, STDIN_FILENO);
 
-				if(close(fds[1]) == -1)
-				{
-					perror("write close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				//execute the one program
-				execvp(program, args_list);
-				perror("msh_execute: execvp");
-				exit(EXIT_FAILURE);
+				close(carryover);
 			}
 
-			//the first command && not the only command
-			if(i == 0 && msh_command_final(c) == 0)
+			if(fds[1] != 0)
 			{
-				//redirections
-				//first command
-				/*
-				1. close the STDOUT
-				2. DUP write end of pipe into STDOUT
-				3. close both of the file descriptors
-				4. exec
-				*/
-			
-				//1. close the STDOUT
-				if(close(STDOUT_FILENO) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
-
-				//2. DUP write end of pipe into STDOUT
+				//DUP write end of pipe into STDOUT
 				//redirect STDOUT to write side of the pipe we just created.
 				dup2(fds[1], STDOUT_FILENO);
 
-				//dup2(fds[0], STDIN_FILENO);
-				
-
-				//3. close both of the file descriptors
-				if (close(fds[0]) == -1)
-				{
-					perror("read close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				if(close(fds[1]) == -1)
-				{
-					perror("write close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				//4. execute program
-				execvp(program, args_list);
-
-				//set carryover
-				carryover = fds[0];
+				close(fds[1]);
 			}
 
-			//the middle commands
-			if(i != 0 && msh_command_final(c) == 0)
-			{
-				//redirections
-				//close the STDIN
-				if(close(STDIN_FILENO) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
+			if(i < (command_count - 1)) close(fds[0]);
 
-				dup2(carryover, STDIN_FILENO);
-
-				if(close(STDOUT_FILENO) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
-
-				//close both of the file descriptors
-				if (close(fds[0]) == -1)
-				{
-					perror("read close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				if(close(fds[1]) == -1)
-				{
-					perror("write close failed");
-					exit(EXIT_FAILURE);
-				}
-				if(close(carryover) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
-
-				dup2(fds[1], STDOUT_FILENO);
-
-				//execute program
-				execvp(program, args_list);
-
-				//set carryover
-				carryover = fds[0];
-			}
-
-			//the last command
-			if(msh_command_final(c) == 1)
-			{
-				//redirections
-				//1. close the STDIN
-				if (close(STDIN_FILENO) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
-				//2. Dup read end of pipe into STDIN
-				dup2(carryover, STDIN_FILENO);
-
-				//close the file descriptors
-				if (close(fds[0]) == -1)
-				{
-					perror("read close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				if(close(fds[1]) == -1)
-				{
-					perror("write close failed");
-					exit(EXIT_FAILURE);
-				}
-
-				if(close(carryover) == -1)
-				{
-					exit(EXIT_FAILURE);
-				}
-
-				//execute program
-				execvp(program, args_list);
-			}
-
-			/* second command, 1 of two
-			1.close the STDIN
-			2. Dup read end of pipe into STDIN
-			3. close both file descriptors
-			4. exec
-			*/
+			execvp(program, args_list); //execute program
+		}
 		else
 		{
-			//wait for all the commands, but not & commands
-			for(int i = 0; i < command_count; i++)
-			{
-				//do not wait for background commands
-				if(msh_pipeline_background(p) == 0)
-				{
-					wait(NULL);
-				}
-			}
-		}
+			if(carryover != 0) close(carryover);
+			
+			if(fds[1] != 0) close(fds[1]);
 
-		}			
+			if(i < (command_count - 1)) close(fds[1]);
+
+			carryover = fds[0]; //reassign carryover
+		}		
 	} //outside for-loop
 	
 	//wait for all the commands, but not & commands
-	/*for(int i = 0; i < command_count; i++)
+	for(int i = 0; i < command_count; i++)
 	{
 		//do not wait for background commands
-		if(msh_pipeline_background(p) == 0)
-		{
-			wait(NULL);
-		}
-	}*/
+		if(msh_pipeline_background(p) == 0) wait(NULL);
+	}
 	
 	msh_pipeline_free(p); //free the pipeline
 	return;
@@ -280,7 +143,7 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			fflush(stdout);
 			break;
 		}
-		//terminate all foreground processes with cntl-c
+		//terminate foreground processes with cntl-c
 		case SIGINT: {
 			//printf("%d:Terminate foreground process\n", getpid());
 
