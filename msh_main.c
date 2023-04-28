@@ -1,6 +1,6 @@
 #include <msh.h>
 #include <msh_parse.h>
-
+#include <msh_execute.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +64,8 @@ main(int argc, char *argv[])
 
 			return err;
 		}
+
+		reset_pid();
 
 		/* dequeue pipelines and sequentially execute them */
 		while ((p = msh_sequence_pipeline(s)) != NULL) {

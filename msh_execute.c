@@ -1,4 +1,5 @@
 #include <msh.h>
+#include <msh_execute.h>
 #include <msh_parse.h>
 #include <msh_parse.c>
 #include <stdio.h>
@@ -9,6 +10,48 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+
+struct pid_struct {
+	//global variable foregroung process
+	pid_t fg_pid[16]; //process ID, one foreground child at a time, array for each 
+	int pid_count;
+};
+
+struct pid_struct pid_global; //global instance of struct
+
+//call after signal processes to reset to -1
+void
+reset_pid()
+{ 
+	pid_global.pid_count = 0; //reset pid count
+}
+
+//add particular pid into array
+void
+add_pid(pid_t pid)
+{
+	if(pid_global.pid_count == 16)
+	{
+		//no more allowed
+		perror("past max args");
+		return;
+	}
+	pid_global.fg_pid[pid_global.pid_count] = pid; //assign at the place and increment
+	pid_global.pid_count++;
+	//printf("add_pid:%d count:%d\n", (int) pid, (int) (pid_global.pid_count));
+}
+
+//send kill signal to every pid
+void
+kill_pid()
+{
+	//printf("kill_pid count:%d\n", pid_global.pid_count);
+	for(int i = 0; i < pid_global.pid_count; i++)
+	{
+		//printf("killing: %d\n", (int) (pid_global.fg_pid[i]));
+		kill(pid_global.fg_pid[i], SIGINT); //send to the specified pid
+	}
+}
 
 int
 msh_pipeline_parse(struct msh_pipeline *p)
@@ -42,13 +85,12 @@ msh_execute(struct msh_pipeline *p)
 	struct msh_command * c; //retrieve the commands
 	char ** args_list; //arguments list
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
-	pid_t pid; //process ID
+	pid_t pid;
 	int fds[2]; //set up the pipe
 	int carryover = 0;
 
 	//STDIN = 0   fds[0] = read
 	//STDOUT = 1  fds[1] = write
-
 	for(int i = 0; i < command_count; i++) //iterate through every command
 	{
 		program = msh_command_program(p->pipeline_commands[i]);
@@ -94,8 +136,16 @@ msh_execute(struct msh_pipeline *p)
 
 			execvp(program, args_list); //execute program
 		}
-		else
+		else //Parent process has child's pid
 		{
+			//foreground process
+			if(msh_pipeline_background(p) == 0)
+			{
+				//set global to child process's id
+				//printf("adding pid: %d\n", pid);
+				add_pid(pid);
+			}
+
 			if(carryover != 0) close(carryover);
 			
 			if(fds[1] != 0) close(fds[1]);
@@ -105,7 +155,6 @@ msh_execute(struct msh_pipeline *p)
 			carryover = fds[0]; //reassign carryover
 		}		
 	} //outside for-loop
-	
 	//wait for all the commands, but not & commands
 	for(int i = 0; i < command_count; i++)
 	{
@@ -113,13 +162,14 @@ msh_execute(struct msh_pipeline *p)
 		if(msh_pipeline_background(p) == 0) wait(NULL);
 	}
 	
-	msh_pipeline_free(p); //free the pipeline
+	msh_pipeline_free(p); //free the pipeline ???
 	return;
 }
 
 void
 sig_handler(int signal_number, siginfo_t *info, void *context)
 {
+	//printf("sig handler was called:%d\n", signal_number);
 	(void) info;
 	(void) context;
 	switch(signal_number){
@@ -129,9 +179,9 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			//fflush(stdout);
 			break;
 		}
-		//terminate a process, sent to pipeline processes
+		//terminate a process, sent to pipeline processes (cntl-z)
 		case SIGTERM: {
-			printf("%d: We've been asked to terminate. Exit!\n", getpid());
+			//printf("%d: We've been asked to terminate. Exit!\n", getpid());
 			fflush(stdout);
 			exit(EXIT_SUCCESS);
 			break;
@@ -146,8 +196,7 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 		//terminate foreground processes with cntl-c
 		case SIGINT: {
 			//printf("%d:Terminate foreground process\n", getpid());
-
-			printf("\n");
+			kill_pid();
 			break;
 		}
 		//run a background command to foreground - user typed 'fg'

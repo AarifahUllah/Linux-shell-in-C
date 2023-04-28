@@ -31,11 +31,6 @@ struct msh_sequence{
 	int seq_pipeline_count;//how many pipelines are in sequence so far
 };
 
-struct pid_list {
-	pid_t pid;
-	struct pid_list* next; 
-};
-
 //free the passed in pipeline
 void
 msh_pipeline_free(struct msh_pipeline *p)
