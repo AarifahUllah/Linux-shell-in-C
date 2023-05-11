@@ -1,9 +1,15 @@
 Grade: 0/100
 Extra Credit: 0
-At commit: f940bed
+At commit: 4834ac4
 
 All possible grades:
 
++ at commit 4834ac4: 0 + 0
++ at commit c2b21a9: 0 + 0
++ at commit e1395ce: 0 + 0
++ at commit f2b39e6: 0 + 0
++ at commit 9d2ff3a: 0 + 0
++ at commit ef528f8: 0 + 0
 + at commit f940bed: 0 + 0
 + at commit 804217c: 0 + 0
 + at commit fbd832a: 0 + 0
@@ -52,6 +58,8 @@ Actual:
 
 
 
+
+
 FAILURE: control-c -- control-c at tests/m2_03_background_signal.c:9 when evaluating harness_exec("tests/signals_testing/cntlc.example") == 0
 
 Expected:
@@ -87,48 +95,4 @@ Expected output:
 hello
 
 * [error:lvl5] [fail]: Valgrind on tests/m2_03_single_bkground.txt: FAILURE
-
-* [error:lvl5] [fail]: FAILURE on tests/m2_04_jobs.txt
-
----
-
-msh output for input "sleep 1 & ; jobs":
-
----
-
-Expected output:
-
-[0] sleep 1
-
-* [error:lvl6] [fail]: Valgrind on tests/m2_04_jobs.txt: FAILURE
-
-* [error:lvl6] [fail]: FAILURE on tests/m2_05_mult_background.txt
-
----
-
-msh output for input "sleep 2 & ; sleep 1 & ; jobs":
-
----
-
-Expected output:
-
-[0] sleep 2
-
-[1] sleep 1
-
-* [error:lvl7] [fail]: Valgrind on tests/m2_05_mult_background.txt: FAILURE
-
-* [error:lvl7] [fail]: FAILURE on tests/m2_06_jobs_fg.txt
-
----
-
-msh output for input "sleep 1 & ; jobs ; fg 0 ; jobs":
-
----
-
-Expected output:
-
-[0] sleep 1
-
-* [error:lvl8] [fail]: Valgrind on tests/m2_06_jobs_fg.txt: FAILURE
 
