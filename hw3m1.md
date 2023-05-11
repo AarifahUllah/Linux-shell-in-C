@@ -1,9 +1,12 @@
-Grade: 0/100
+Grade: 50/100
 Extra Credit: 0
-At commit: 1594a07
+At commit: 34ec4c7
 
 All possible grades:
 
++ at commit 34ec4c7: 50 + 0
++ at commit 90e8677: 50 + 0
++ at commit 868e1da: 50 + 0
 + at commit 1594a07: 0 + 0
 + at commit 4d1304d: 0 + 0
 + at commit 55f73ae: 0 + 0
@@ -12,48 +15,6 @@ All possible grades:
 -------------------------
 
 Explanation:
-
-* [error:lvl1] [fail]: FAILURE on tests/m1_00_single_cmd.txt
-
----
-
-msh output for input "echo":
-
----
-
-Expected output:
-
-
-
-* [error:lvl2] [fail]: Valgrind on tests/m1_00_single_cmd.txt: FAILURE
-
-* [error:lvl2] [fail]: FAILURE on tests/m1_01_simple_cmd.txt
-
----
-
-msh output for input "echo hello":
-
----
-
-Expected output:
-
-hello
-
-* [error:lvl3] [fail]: Valgrind on tests/m1_01_simple_cmd.txt: FAILURE
-
-* [error:lvl3] [fail]: FAILURE on tests/m1_02_args.txt
-
----
-
-msh output for input "echo hello world":
-
----
-
-Expected output:
-
-hello world
-
-* [error:lvl4] [fail]: Valgrind on tests/m1_02_args.txt: FAILURE
 
 * [error:lvl4] [fail]: FAILURE on tests/m1_03_pipeline.txt
 
