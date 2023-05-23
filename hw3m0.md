@@ -1,50 +1,27 @@
-Grade: 0/100
-Extra Credit: 0
-At commit: 308a21b1bd9252d987990a8ee84725466851b6e3
+Grade: 100/100
+Extra Credit: 10
+At commit: 663ae42
 
 All possible grades:
 
-+ at commit 308a21b1bd9252d987990a8ee84725466851b6e3: 0 + 0
-
--------------------------
-
-Explanation:
-
-* [error:lvl1] [fail]: FAILURE: simply parse a command -- hello pipeline found at tests/m0_01_single_cmd_pipeline.c:115 when evaluating p != ((void *)0)
-
-FAILURE: single command, no arguments -- hello found pipeline at tests/m0_01_single_cmd_pipeline.c:87 when evaluating p != ((void *)0)
-
-FAILURE: single command, one argument -- helloagain found pipeline at tests/m0_01_single_cmd_pipeline.c:55 when evaluating p != ((void *)0)
-
-FAILURE: single command, multiple arguments -- hey found pipeline at tests/m0_01_single_cmd_pipeline.c:20 when evaluating p != ((void *)0)
-
-SUCCESS (0 of 4): single command, various arguments
-
-* [error:lvl2] [fail]: Valgrind on tests/m0_01_single_cmd_pipeline.test: FAILURE
-
-* [error:lvl2] [fail]: FAILURE: two commands, no arguments -- hello pipeline at tests/m0_02_pipelines.c:59 when evaluating p != ((void *)0)
-
-FAILURE: two commands, one with arguments -- hello pipeline at tests/m0_02_pipelines.c:19 when evaluating p != ((void *)0)
-
-SUCCESS (0 of 2): pipeline of commands, various arguments
-
-* [error:lvl3] [fail]: Valgrind on tests/m0_02_pipelines.test: FAILURE
-
-* [error:lvl3] [fail]: FAILURE: simple sequences -- hello pipeline at tests/m0_03_sequences.c:20 when evaluating p != ((void *)0)
-
-FAILURE: sequence of pipelines -- hello pipeline at tests/m0_03_sequences.c:58 when evaluating p != ((void *)0)
-
-SUCCESS (0 of 2): sequences
-
-* [error:lvl4] [fail]: Valgrind on tests/m0_03_sequences.test: FAILURE
-
-* [error:lvl4] [fail]: FAILURE: pipeline with no command before or after | -- error for no command at tests/m0_04_errors.c:15 when evaluating ret == MSH_ERR_PIPE_MISSING_CMD
-
-FAILURE: too many commands -- error for too many commands at tests/m0_04_errors.c:30 when evaluating ret == MSH_ERR_TOO_MANY_CMDS
-
-FAILURE: too many args -- error for too many args at tests/m0_04_errors.c:45 when evaluating ret == MSH_ERR_TOO_MANY_ARGS
-
-SUCCESS (0 of 3): Testing edge cases and errors
-
-* [error:lvl5] [fail]: Valgrind on tests/m0_04_errors.test: FAILURE
-
++ at commit 663ae42: 100 + 10
++ at commit 48a74ba: 0 + 0
++ at commit 6ddc7ee: 100 + 10
++ at commit 1f79d8d: 100 + 10
++ at commit 4834ac4: 100 + 10
++ at commit c2b21a9: 100 + 10
++ at commit e1395ce: 100 + 10
++ at commit f2b39e6: 100 + 10
++ at commit 9d2ff3a: 100 + 10
++ at commit ef528f8: 100 + 10
++ at commit f940bed: 100 + 10
++ at commit 804217c: 100 + 10
++ at commit fbd832a: 100 + 10
++ at commit 37cdc74: 100 + 10
++ at commit 34ec4c7: 100 + 10
++ at commit 90e8677: 100 + 10
++ at commit 868e1da: 100 + 10
++ at commit 1594a07: 100 + 10
++ at commit 4d1304d: 100 + 10
++ at commit 55f73ae: 100 + 10
++ at commit 86ee9b7: 100 + 10
