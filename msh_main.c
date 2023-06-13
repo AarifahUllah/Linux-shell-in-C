@@ -65,12 +65,12 @@ main(int argc, char *argv[])
 			return err;
 		}
 
-		reset_pid();
-
 		/* dequeue pipelines and sequentially execute them */
 		while ((p = msh_sequence_pipeline(s)) != NULL) {
 			msh_execute(p);
 		}
+
+		free(str);
 	}
 	msh_sequence_free(s);
 

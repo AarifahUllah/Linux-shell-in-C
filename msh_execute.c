@@ -11,51 +11,45 @@
 #include <errno.h>
 #include <signal.h>
 
-struct pid_struct {
-	//global variable foregroung process
+//foreground process struct
+struct fg_pid_struct {
 	pid_t fg_pid[16]; //process ID, one foreground child at a time, array for each 
-	int pid_count;
+	int fg_pid_count;
 };
 
-struct pid_struct pid_global; //global instance of struct
+struct fg_pid_struct fg_pids;
 
 //call after signal processes to reset to -1
 void
-reset_pid()
+fg_pid_reset()
 { 
-	pid_global.pid_count = 0; //reset pid count
+	fg_pids.fg_pid_count = 0; //reset foreground pid count
 }
 
-//add particular pid into array
+//add particular fg pid into array
 void
-add_pid(pid_t pid)
+fg_pid_add(pid_t pid)
 {
-	if(pid_global.pid_count == 16)
-	{
-		//no more allowed
-		perror("past max args");
-		return;
-	}
-	pid_global.fg_pid[pid_global.pid_count] = pid; //assign at the place and increment
-	pid_global.pid_count++;
-	//printf("add_pid:%d count:%d\n", (int) pid, (int) (pid_global.pid_count));
+	if (fg_pids.fg_pid_count == 16) perror("past max args");
+
+	fg_pids.fg_pid[fg_pids.fg_pid_count] = pid;
+	fg_pids.fg_pid_count++;
 }
 
-//send kill signal to every pid
+//send kill signal to every foreground pid
 void
 kill_pid()
 {
-	//printf("kill_pid count:%d\n", pid_global.pid_count);
-	for(int i = 0; i < pid_global.pid_count; i++)
+	for(int i = 0; i < fg_pids.fg_pid_count; i++)
 	{
-		//printf("killing: %d\n", (int) (pid_global.fg_pid[i]));
-		kill(pid_global.fg_pid[i], SIGINT); //send to the specified pid
+		printf("killing: %d\n", (int) fg_pids.fg_pid[i]);
+		kill(fg_pids.fg_pid[i], SIGINT); //send to the specified pid at index i
 	}
 }
 
 int
 msh_pipeline_parse(struct msh_pipeline *p)
-{
+{ 
 	char *token, *ptr;
 	char * input_copy = malloc(strlen(p->pipe) + 1);
 	int counter = 0; //count how many "|" separators there are
@@ -97,6 +91,69 @@ msh_execute(struct msh_pipeline *p)
 		c = msh_pipeline_command(p, i);
 		args_list = msh_command_args(c);
 
+		//supporting built-in commands:
+		//typing "exit" leaves the shell
+		if(strcmp(c->command, "exit") == 0) exit(EXIT_SUCCESS);
+
+		//typing cd changes the directory
+		if(strcmp(c->command, "cd") == 0)
+		{
+			//ensuring user typed correct format; args count <= 3 (one for cd, one for argument, one for NULL)
+			if(c->comm_args_count > 3) perror("bash: cd: too many arguments");
+
+			char * directory = c->comm_arguments[1]; //cd [directory] is just one argument
+
+			//cd to return home
+			if(directory == NULL || strcmp(directory, "~") == 0)
+			{
+				if(chdir(getenv("HOME")) == -1) perror("chdir");
+			}
+
+			else
+			{
+				//cd w/ a specified path using ~
+				if(directory[0] == '~')
+				{
+					char * home_directory = getenv("HOME");
+					char * new_directory = malloc(strlen(home_directory) + strlen(directory) + 1);
+					if(new_directory == NULL) perror("cd malloc() failure");
+					strcpy(new_directory, home_directory); //add home directory as part of the new directory
+					strcat(new_directory, &directory[1]); //concatenate the previous directory to the new one
+					directory = new_directory; //reassign to "directory" variable for use in line 125
+				}
+				//cd using relative path
+				if(chdir(directory) == -1)
+				{
+					printf("bash: %s: No such file or directory\n", directory);
+					exit(EXIT_FAILURE);
+				}
+
+				if(directory != c->comm_arguments[1]) free(directory); //free the potential malloc() on line 118
+			}
+
+			continue; //other commands that still need to be executed
+		}
+
+		//changing current commands to background/foreground
+		if(strcmp(c->command, "fg") == 0)
+		{
+			//check if command is already in foreground
+
+		}
+
+		if(strcmp(c->command, "bg") == 0)
+		{
+			//check if command is already in background
+		}
+
+		//user typed jobs
+		if(strcmp(c->command, "jobs") == 0)
+		{
+			//print out list of jobs
+
+		}
+
+		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
 		{
 			if(pipe(fds) == -1) //set up the pipe
@@ -111,6 +168,7 @@ msh_execute(struct msh_pipeline *p)
 		if(pid == -1)
 		{
 			perror("forking failed");
+			msh_pipeline_free(p);
 			exit(EXIT_FAILURE);
 		}
 
@@ -142,8 +200,8 @@ msh_execute(struct msh_pipeline *p)
 			if(msh_pipeline_background(p) == 0)
 			{
 				//set global to child process's id
-				//printf("adding pid: %d\n", pid);
-				add_pid(pid);
+				printf("adding pid: %d\n", pid);
+				fg_pid_add(pid);
 			}
 
 			if(carryover != 0) close(carryover);
@@ -161,8 +219,12 @@ msh_execute(struct msh_pipeline *p)
 		//do not wait for background commands
 		if(msh_pipeline_background(p) == 0) wait(NULL);
 	}
+	for(int i = 0; i < fg_pids.fg_pid_count; i++)
+	{
+		printf("i: %d count: %d pid: %d\n", i, fg_pids.fg_pid_count, fg_pids.fg_pid[i]);
+	}
 	
-	msh_pipeline_free(p); //free the pipeline ???
+	msh_pipeline_free(p);
 	return;
 }
 
@@ -189,14 +251,16 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 		//foreground pipeline is suspended, able to receive input in shell again
 		//user typed 'cntl-z', 'bg'
 		case SIGTSTP: {
-			printf("%d: We've been asked to suspend. Go to background\n", getpid());
+			printf("%d: Cntl-Z pressed. We've been asked to suspend. Go to background\n", getpid());
 			fflush(stdout);
 			break;
 		}
 		//terminate foreground processes with cntl-c
 		case SIGINT: {
-			//printf("%d:Terminate foreground process\n", getpid());
+			printf("%d:Cntl-C pressed. Terminate foreground process\n", getpid());
+			fflush(stdout);
 			kill_pid();
+			fg_pid_reset();
 			break;
 		}
 		//run a background command to foreground - user typed 'fg'
@@ -211,7 +275,6 @@ setup_signal(int signo, void (*fn)(int, siginfo_t *, void *))
 {
 	sigset_t masked;
 	struct sigaction siginfo;
-	//int ret;
 
 	sigemptyset(&masked);
 	sigaddset(&masked, signo);
