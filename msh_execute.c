@@ -17,7 +17,15 @@ struct fg_pid_struct {
 	int fg_pid_count;
 };
 
+//background process struct
+struct bg_commands_struct {
+	pid_t bg_pid[MSH_MAXBACKGROUND]; //only allowed MSH_MAXBACKGROUND amount of bg commands
+	int bg_count;
+};
+
+//initialize fg anf bg structs as global variables
 struct fg_pid_struct fg_pids;
+struct bg_commands_struct bg_commands;
 
 //call after signal processes to reset to -1
 void
@@ -149,7 +157,7 @@ msh_execute(struct msh_pipeline *p)
 		//user typed jobs
 		if(strcmp(c->command, "jobs") == 0)
 		{
-			//print out list of jobs
+			//print out list of jobs, or commands that are suspended
 
 		}
 
@@ -202,6 +210,22 @@ msh_execute(struct msh_pipeline *p)
 				//set global to child process's id
 				printf("adding pid: %d\n", pid);
 				fg_pid_add(pid);
+			}
+
+			//background process
+			if(msh_pipeline_background(p) == 1)
+			{
+				//memset first background 
+				//add background process to array of background commands
+				//that can be later found by typing jobs
+
+				//check that MSH_MAXBACKGROUND limit is not reached
+				if(bg_commands.bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
+
+				for(int i = 0; i < bg_commands.bg_count; i++)
+				{
+					if()
+				}
 			}
 
 			if(carryover != 0) close(carryover);
