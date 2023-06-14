@@ -12,20 +12,22 @@
 #include <signal.h>
 
 //foreground process struct
-struct fg_pid_struct {
-	pid_t fg_pid[16]; //process ID, one foreground child at a time, array for each 
-	int fg_pid_count;
+struct fg_comms{
+	pid_t fg_pid;
+	char * fg_program; 
 };
 
 //background process struct
-struct bg_commands_struct {
-	pid_t bg_pid[MSH_MAXBACKGROUND]; //only allowed MSH_MAXBACKGROUND amount of bg commands
-	int bg_count;
+struct bg_comms {
+	pid_t bg_pid; //the background program's pid, needed for fg or cntl-c
+	char * bg_program; //the name of the background program, needed when using jobs
 };
 
-//initialize fg anf bg structs as global variables
-struct fg_pid_struct fg_pids;
-struct bg_commands_struct bg_commands;
+//initialize fg and bg structs as global variables
+struct fg_comms fg_commands[MSH_MAXBACKGROUND];
+struct bg_comms bg_commands[MSH_MAXBACKGROUND];
+int bg_count; //current count of background commands
+int fg_count; //current count of foreground commands (unsure if needed)
 
 //call after signal processes to reset to -1
 void
@@ -91,8 +93,6 @@ msh_execute(struct msh_pipeline *p)
 	int fds[2]; //set up the pipe
 	int carryover = 0;
 
-	//STDIN = 0   fds[0] = read
-	//STDOUT = 1  fds[1] = write
 	for(int i = 0; i < command_count; i++) //iterate through every command
 	{
 		program = msh_command_program(p->pipeline_commands[i]);
@@ -154,13 +154,17 @@ msh_execute(struct msh_pipeline *p)
 			//check if command is already in background
 		}
 
-		//user typed jobs
+		//jobs prints out list of bg commands like this: [0] sleep 10
 		if(strcmp(c->command, "jobs") == 0)
 		{
-			//print out list of jobs, or commands that are suspended
-
+			for(int i = 0; i < bg_count; i++) printf("[%d] %s\n", i, bg_commands[i].bg_program);
 		}
 
+		//REDIRECTION: 1>, 1>>, 2>, 2>>
+
+		//STDIN = 0   fds[0] = read
+		//STDOUT = 1  fds[1] = write
+		
 		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
 		{
@@ -212,19 +216,25 @@ msh_execute(struct msh_pipeline *p)
 				fg_pid_add(pid);
 			}
 
-			//background process
+			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
 			{
-				//memset first background 
-				//add background process to array of background commands
-				//that can be later found by typing jobs
+				//memset first background
+				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_commands_struct) * MSH_MAXBACKGROUND);
 
 				//check that MSH_MAXBACKGROUND limit is not reached
-				if(bg_commands.bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
+				if(bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
 
-				for(int i = 0; i < bg_commands.bg_count; i++)
+				for(int i = 0; i < bg_count; i++)
 				{
-					if()
+					if(bg_commands[i].bg_pid == 0)
+					{
+						bg_commands[i].bg_pid = pid; // add the command to array of background commands
+						bg_commands[i].bg_program = program; //need to fix
+						bg_count++; //incrememnt background command count
+						printf("[%d] %d\n", i, pid); //print job order and process id
+						break;
+					}
 				}
 			}
 
@@ -243,11 +253,7 @@ msh_execute(struct msh_pipeline *p)
 		//do not wait for background commands
 		if(msh_pipeline_background(p) == 0) wait(NULL);
 	}
-	for(int i = 0; i < fg_pids.fg_pid_count; i++)
-	{
-		printf("i: %d count: %d pid: %d\n", i, fg_pids.fg_pid_count, fg_pids.fg_pid[i]);
-	}
-	
+
 	msh_pipeline_free(p);
 	return;
 }
