@@ -29,32 +29,34 @@ struct bg_comms bg_commands[MSH_MAXBACKGROUND];
 int bg_count; //current count of background commands
 int fg_count; //current count of foreground commands (unsure if needed)
 
-//call after signal processes to reset to -1
-void
-fg_pid_reset()
-{ 
-	fg_pids.fg_pid_count = 0; //reset foreground pid count
-}
 
-//add particular fg pid into array
+//Helper functions:
+
+//add fg command to array
 void
-fg_pid_add(pid_t pid)
+fg_add(pid_t pid, char *program)
 {
-	if (fg_pids.fg_pid_count == 16) perror("past max args");
+	//reset the array everytime count is 0, needed once whole program finishes or after cntl-c
+	if(fg_count == 0) memset(fg_commands, 0, sizeof(fg_comms) * MSH_MAXBACKGROUND);
 
-	fg_pids.fg_pid[fg_pids.fg_pid_count] = pid;
-	fg_pids.fg_pid_count++;
+	for(int i = 0; i < fg_count; i++)
+	{
+		if(fg_commands[i].fg_pid == 0)
+		{
+			fg_commands[i].fg_pid = pid;
+			fg_commands[i].fg_program = program;
+			fg_count++;
+			break;
+		}
+	}
 }
 
 //send kill signal to every foreground pid
 void
-kill_pid()
+fg_kill()
 {
-	for(int i = 0; i < fg_pids.fg_pid_count; i++)
-	{
-		printf("killing: %d\n", (int) fg_pids.fg_pid[i]);
-		kill(fg_pids.fg_pid[i], SIGINT); //send to the specified pid at index i
-	}
+	for(int i = 0; i < fg_pids.fg_pid_count; i++) kill(fg_commands[i].fg_pid, SIGINT);
+	fg_count = 0; //reset foreground command count after kiling each process
 }
 
 int
@@ -80,6 +82,21 @@ msh_pipeline_parse(struct msh_pipeline *p)
 
 	free(input_copy);
 	return counter;
+}
+
+//parse command for redirection symbols (do redirection error checking here later)
+int
+redirect(struct msh_command *c)
+{
+	if(strstr(c->comm_arguments, "1>") != NULL) return 1;
+
+	if(strstr(c->comm_arguments, "1>>") != NULL) return 2;
+
+	if(strstr(c->comm_arguments, "2>") != NULL) return 3;
+
+	if(strstr(c->comm_arguments, "2>>") != NULL) return 4;
+
+	else return 0; //return 0 if no redirects
 }
 
 void
@@ -145,10 +162,20 @@ msh_execute(struct msh_pipeline *p)
 		//changing current commands to background/foreground
 		if(strcmp(c->command, "fg") == 0)
 		{
-			//check if command is already in foreground
-
+			int index = (int) c->comm_arguments;
+			printf("index: %d\n", index); //check the casting
+			//check if a command w/ index given is in background array
+			if(bg_commands[index] != 0)
+			{
+				kill(bg_commands.bg_pid, SIGCONT);
+				fg_add(bg_commands[index].bg_pid, bg_commands[index].bg_program);//add to foreground command array using fg_add function
+				bg_commands[index].bg_pid = 0; //remove background command from array
+				bg_count--;//decrement bg_count
+			}
+			else perror("process doesn't exist"); ///background command does not exit w/ given index (find exact message)
 		}
 
+		//do we need bg?
 		if(strcmp(c->command, "bg") == 0)
 		{
 			//check if command is already in background
@@ -176,6 +203,8 @@ msh_execute(struct msh_pipeline *p)
 		}
 
 		pid = fork(); //fork process returns 0 or the id of child
+
+		int redirect_status = redirect(c); //check redirection status of command
 
 		if(pid == -1)
 		{
@@ -247,10 +276,9 @@ msh_execute(struct msh_pipeline *p)
 			carryover = fds[0]; //reassign carryover
 		}		
 	} //outside for-loop
-	//wait for all the commands, but not & commands
+	//wait for all the commands except for background commands
 	for(int i = 0; i < command_count; i++)
 	{
-		//do not wait for background commands
 		if(msh_pipeline_background(p) == 0) wait(NULL);
 	}
 
@@ -271,7 +299,7 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			//fflush(stdout);
 			break;
 		}
-		//terminate a process, sent to pipeline processes (cntl-z)
+		//terminate a process, sent to pipeline processes
 		case SIGTERM: {
 			//printf("%d: We've been asked to terminate. Exit!\n", getpid());
 			fflush(stdout);
@@ -283,14 +311,14 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 		case SIGTSTP: {
 			printf("%d: Cntl-Z pressed. We've been asked to suspend. Go to background\n", getpid());
 			fflush(stdout);
+			bg_count++;//increment bg count
 			break;
 		}
 		//terminate foreground processes with cntl-c
 		case SIGINT: {
 			printf("%d:Cntl-C pressed. Terminate foreground process\n", getpid());
 			fflush(stdout);
-			kill_pid();
-			fg_pid_reset();
+			fg_kill();
 			break;
 		}
 		//run a background command to foreground - user typed 'fg'
