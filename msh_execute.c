@@ -37,7 +37,7 @@ void
 fg_add(pid_t pid, char *program)
 {
 	//reset the array everytime count is 0, needed once whole program finishes or after cntl-c
-	if(fg_count == 0) memset(fg_commands, 0, sizeof(fg_comms) * MSH_MAXBACKGROUND);
+	if(fg_count == 0) memset(fg_commands, 0, sizeof(struct fg_comms) * MSH_MAXBACKGROUND);
 
 	for(int i = 0; i < fg_count; i++)
 	{
@@ -55,7 +55,7 @@ fg_add(pid_t pid, char *program)
 void
 fg_kill()
 {
-	for(int i = 0; i < fg_pids.fg_pid_count; i++) kill(fg_commands[i].fg_pid, SIGINT);
+	for(int i = 0; i < fg_count; i++) kill(fg_commands[i].fg_pid, SIGINT);
 	fg_count = 0; //reset foreground command count after kiling each process
 }
 
@@ -83,21 +83,99 @@ msh_pipeline_parse(struct msh_pipeline *p)
 	free(input_copy);
 	return counter;
 }
+//redirection error checking
+msh_err_t
+redirection_parse(struct msh_command *c)
+{
+	//char *token, *ptr;
+	//char * input_copy = malloc(strlen(c->comm_arguments) + 1);
+	int pipe_counter, one_arrow, one_arrows, two_arrow, two_arrows = 0; // "|", 1>, 1>>, 2>, 2>> counters
 
-//parse command for redirection symbols (do redirection error checking here later)
+	//malloc() failure
+	/*if(input_copy == NULL)
+	{
+		perror("redirection_parse: malloc failure");
+		free(input_copy);
+		exit(EXIT_FAILURE);
+	}
+
+	strcpy(input_copy, c-comm_arguments);
+	for(token = strtok_r(input_copy, "|", &ptr); token != NULL; token = strtok_r(NULL, "|", &ptr)) pipe_counter++;
+	for(token = strtok_r(input_copy, "1>", &ptr); token != NULL; token = strtok_r(NULL, "1>", &ptr)) one_arrow++;
+	for(token = strtok_r(input_copy, "1>>", &ptr); token != NULL; token = strtok_r(NULL, "1>>", &ptr)) one_arrows++;
+	for(token = strtok_r(input_copy, "2>", &ptr); token != NULL; token = strtok_r(NULL, "2>", &ptr)) two_arrow++;
+	for(token = strtok_r(input_copy, "2>>", &ptr); token != NULL; token = strtok_r(NULL, "2>>", &ptr)) two_arrows++;*/
+
+	for(int i = 0; i < c->comm_args_count; i++)
+	{
+		if(strcmp(c->comm_arguments[i], "|") == 0) pipe_counter++;
+		if(strcmp(c->comm_arguments[i], "1>") == 0) one_arrow++;
+		if(strcmp(c->comm_arguments[i], "1>>") == 0) one_arrows++;
+		if(strcmp(c->comm_arguments[i], "2>") == 0) two_arrow++;
+		if(strcmp(c->comm_arguments[i], "2>>") == 0) two_arrows++;
+	}
+
+	//cannot have redirected to more than one file
+	//this is not allowed: cmd 1> a.txt 1> b.txt 
+	if((one_arrow > 1) || (one_arrows > 1) || (two_arrow > 1) || (two_arrows > 1))
+	{
+		//free(input_copy);
+		printf("%s\n", msh_pipeline_err2str(-2));
+		return -2;
+	}
+
+	//cannot have a redirection and output sent to a pipe
+	if((one_arrow == 1) && (pipe_counter > 0))
+	{
+		//free(input_copy);
+		printf("%s\n", msh_pipeline_err2str(-10));
+		return -10;
+	}
+
+	if((one_arrows == 1) && (pipe_counter > 0))
+	{
+		//free(input_copy);
+		printf("%s\n", msh_pipeline_err2str(-10));
+		return -10;
+	}
+
+	if((two_arrow == 1) && (pipe_counter > 0))
+	{
+		//free(input_copy);
+		printf("%s\n", msh_pipeline_err2str(-10));
+		return -10;
+	}
+
+	if((two_arrows == 1) && (pipe_counter > 0))
+	{
+		//free(input_copy);
+		printf("%s\n", msh_pipeline_err2str(-10));
+		return -10;
+	}
+
+	//free(input_copy);
+	return 0; //SUCCESS
+}
+
+//parse command for redirection symbols
 int
 redirect(struct msh_command *c)
 {
-	if(strstr(c->comm_arguments, "1>") != NULL) return 1;
+	for(int i = 0; i < c->comm_args_count; i++)
+	{
+		if(strstr(c->comm_arguments[i], "1>") != NULL) return 1;
 
-	if(strstr(c->comm_arguments, "1>>") != NULL) return 2;
+		if(strstr(c->comm_arguments[i], "1>>") != NULL) return 2;
 
-	if(strstr(c->comm_arguments, "2>") != NULL) return 3;
+		if(strstr(c->comm_arguments[i], "2>") != NULL) return 3;
 
-	if(strstr(c->comm_arguments, "2>>") != NULL) return 4;
+		if(strstr(c->comm_arguments[i], "2>>") != NULL) return 4;
+	}
 
-	else return 0; //return 0 if no redirects
+	return 0; //no redirects
 }
+//end of helper functions
+
 
 void
 msh_execute(struct msh_pipeline *p)
@@ -124,7 +202,7 @@ msh_execute(struct msh_pipeline *p)
 		if(strcmp(c->command, "cd") == 0)
 		{
 			//ensuring user typed correct format; args count <= 3 (one for cd, one for argument, one for NULL)
-			if(c->comm_args_count > 3) perror("bash: cd: too many arguments");
+			if(c->comm_args_count > 3) perror("msh: cd: too many arguments");
 
 			char * directory = c->comm_arguments[1]; //cd [directory] is just one argument
 
@@ -162,17 +240,18 @@ msh_execute(struct msh_pipeline *p)
 		//changing current commands to background/foreground
 		if(strcmp(c->command, "fg") == 0)
 		{
-			int index = (int) c->comm_arguments;
+			char * ptr;
+			int index = (int) strtol(c->comm_arguments[1], &ptr, 10);
 			printf("index: %d\n", index); //check the casting
 			//check if a command w/ index given is in background array
-			if(bg_commands[index] != 0)
+			if(bg_commands[index].bg_pid != 0)
 			{
-				kill(bg_commands.bg_pid, SIGCONT);
+				kill(bg_commands[index].bg_pid, SIGCONT);
 				fg_add(bg_commands[index].bg_pid, bg_commands[index].bg_program);//add to foreground command array using fg_add function
 				bg_commands[index].bg_pid = 0; //remove background command from array
 				bg_count--;//decrement bg_count
 			}
-			else perror("process doesn't exist"); ///background command does not exit w/ given index (find exact message)
+			else printf("msh: fg: %d%s: no such job\n", index, ptr); ///background command does not exit w/ given index
 		}
 
 		//do we need bg?
@@ -184,13 +263,23 @@ msh_execute(struct msh_pipeline *p)
 		//jobs prints out list of bg commands like this: [0] sleep 10
 		if(strcmp(c->command, "jobs") == 0)
 		{
-			for(int i = 0; i < bg_count; i++) printf("[%d] %s\n", i, bg_commands[i].bg_program);
+			for(int j = 0; j < bg_count; j++) printf("[%d] %s\n", j, bg_commands[j].bg_program);
 		}
 
-		//REDIRECTION: 1>, 1>>, 2>, 2>>
+		/*
+		REDIRECTION: 1>, 1>>, 2>, 2>>
+		1, for standout 2, for stderr
+		> delete the file, then output to that file
+		>> append to exiting file
+		support these:
+		1. redirection of stdout via a pipe (M1)
+		2. redirection of stdout to a file
+		3. no redirection of stdout - goes to command line
+		4. redirection of stderr to a file
 
-		//STDIN = 0   fds[0] = read
-		//STDOUT = 1  fds[1] = write
+		STDIN = 0   fds[0] = read
+		STDOUT = 1  fds[1] = write
+		*/
 		
 		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
@@ -204,7 +293,16 @@ msh_execute(struct msh_pipeline *p)
 
 		pid = fork(); //fork process returns 0 or the id of child
 
+		//check for redirection errors first
+		if(redirection_parse(c) != 0)
+		{
+			redirection_parse(c); //give error message
+			msh_pipeline_free(p);
+			exit(EXIT_FAILURE);
+		}
+
 		int redirect_status = redirect(c); //check redirection status of command
+		(void) redirect_status;
 
 		if(pid == -1)
 		{
@@ -242,14 +340,14 @@ msh_execute(struct msh_pipeline *p)
 			{
 				//set global to child process's id
 				printf("adding pid: %d\n", pid);
-				fg_pid_add(pid);
+				fg_add(pid, program);
 			}
 
 			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
 			{
 				//memset first background
-				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_commands_struct) * MSH_MAXBACKGROUND);
+				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_comms) * MSH_MAXBACKGROUND);
 
 				//check that MSH_MAXBACKGROUND limit is not reached
 				if(bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
