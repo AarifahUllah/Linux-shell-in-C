@@ -85,41 +85,32 @@ msh_pipeline_parse(struct msh_pipeline *p)
 }
 //redirection error checking
 msh_err_t
-redirection_parse(struct msh_command *c)
+redirection_parse(struct msh_command *c, struct msh_pipeline * p)
 {
-	//char *token, *ptr;
-	//char * input_copy = malloc(strlen(c->comm_arguments) + 1);
-	int pipe_counter, one_arrow, one_arrows, two_arrow, two_arrows = 0; // "|", 1>, 1>>, 2>, 2>> counters
-
-	//malloc() failure
-	/*if(input_copy == NULL)
+	int pipe_counter = msh_pipeline_parse(p) - 1; // "|", 1>, 1>>, 2>, 2>> counters
+	int one_arrow = 0;
+	int one_arrows = 0;
+	int two_arrow = 0; 
+	int two_arrows = 0;
+	
+	for(int i = 0; i < c->comm_args_count - 1; i++)
 	{
-		perror("redirection_parse: malloc failure");
-		free(input_copy);
-		exit(EXIT_FAILURE);
-	}
-
-	strcpy(input_copy, c-comm_arguments);
-	for(token = strtok_r(input_copy, "|", &ptr); token != NULL; token = strtok_r(NULL, "|", &ptr)) pipe_counter++;
-	for(token = strtok_r(input_copy, "1>", &ptr); token != NULL; token = strtok_r(NULL, "1>", &ptr)) one_arrow++;
-	for(token = strtok_r(input_copy, "1>>", &ptr); token != NULL; token = strtok_r(NULL, "1>>", &ptr)) one_arrows++;
-	for(token = strtok_r(input_copy, "2>", &ptr); token != NULL; token = strtok_r(NULL, "2>", &ptr)) two_arrow++;
-	for(token = strtok_r(input_copy, "2>>", &ptr); token != NULL; token = strtok_r(NULL, "2>>", &ptr)) two_arrows++;*/
-
-	for(int i = 0; i < c->comm_args_count; i++)
-	{
-		if(strcmp(c->comm_arguments[i], "|") == 0) pipe_counter++;
 		if(strcmp(c->comm_arguments[i], "1>") == 0) one_arrow++;
 		if(strcmp(c->comm_arguments[i], "1>>") == 0) one_arrows++;
 		if(strcmp(c->comm_arguments[i], "2>") == 0) two_arrow++;
 		if(strcmp(c->comm_arguments[i], "2>>") == 0) two_arrows++;
 	}
-
+	printf("| count: %d\n", pipe_counter);
+	printf("1> count: %d\n", one_arrow);
+	printf("1>> count: %d\n", one_arrows);
+	printf("2> count: %d\n", two_arrow);
+	printf("2>> count: %d\n", two_arrows);
 	//cannot have redirected to more than one file
 	//this is not allowed: cmd 1> a.txt 1> b.txt 
 	if((one_arrow > 1) || (one_arrows > 1) || (two_arrow > 1) || (two_arrows > 1))
 	{
 		//free(input_copy);
+		printf("line 118\n");
 		printf("%s\n", msh_pipeline_err2str(-2));
 		return -2;
 	}
@@ -153,7 +144,7 @@ redirection_parse(struct msh_command *c)
 		return -10;
 	}
 
-	//free(input_copy);
+	//pipe_counter, one_arrow, one_arrows, two_arrow, two_arrows = 0; //reset counts for later uses
 	return 0; //SUCCESS
 }
 
@@ -280,6 +271,16 @@ msh_execute(struct msh_pipeline *p)
 		STDIN = 0   fds[0] = read
 		STDOUT = 1  fds[1] = write
 		*/
+
+		//check for redirection errors first
+		/*if(redirection_parse(c, p) != 0)
+		{
+			msh_pipeline_free(p);
+			exit(EXIT_FAILURE);
+		}
+
+		int redirect_status = redirect(c); //check redirection status of command
+		printf("redirect_status %d\n", redirect_status);*/
 		
 		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
@@ -290,19 +291,8 @@ msh_execute(struct msh_pipeline *p)
 				exit(EXIT_FAILURE);
 			}
 		}
-
+		
 		pid = fork(); //fork process returns 0 or the id of child
-
-		//check for redirection errors first
-		if(redirection_parse(c) != 0)
-		{
-			redirection_parse(c); //give error message
-			msh_pipeline_free(p);
-			exit(EXIT_FAILURE);
-		}
-
-		int redirect_status = redirect(c); //check redirection status of command
-		(void) redirect_status;
 
 		if(pid == -1)
 		{
