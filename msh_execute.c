@@ -85,7 +85,7 @@ msh_pipeline_parse(struct msh_pipeline *p)
 }
 //redirection error checking
 msh_err_t
-redirection_parse(struct msh_command *c, struct msh_pipeline * p)
+redirection_parse(struct msh_command *c, struct msh_pipeline *p)
 {
 	int pipe_counter = msh_pipeline_parse(p) - 1; // "|", 1>, 1>>, 2>, 2>> counters
 	int one_arrow = 0;
@@ -100,17 +100,11 @@ redirection_parse(struct msh_command *c, struct msh_pipeline * p)
 		if(strcmp(c->comm_arguments[i], "2>") == 0) two_arrow++;
 		if(strcmp(c->comm_arguments[i], "2>>") == 0) two_arrows++;
 	}
-	printf("| count: %d\n", pipe_counter);
-	printf("1> count: %d\n", one_arrow);
-	printf("1>> count: %d\n", one_arrows);
-	printf("2> count: %d\n", two_arrow);
-	printf("2>> count: %d\n", two_arrows);
+	
 	//cannot have redirected to more than one file
 	//this is not allowed: cmd 1> a.txt 1> b.txt 
 	if((one_arrow > 1) || (one_arrows > 1) || (two_arrow > 1) || (two_arrows > 1))
 	{
-		//free(input_copy);
-		printf("line 118\n");
 		printf("%s\n", msh_pipeline_err2str(-2));
 		return -2;
 	}
@@ -118,21 +112,18 @@ redirection_parse(struct msh_command *c, struct msh_pipeline * p)
 	//cannot have a redirection and output sent to a pipe
 	if((one_arrow == 1) && (pipe_counter > 0))
 	{
-		//free(input_copy);
 		printf("%s\n", msh_pipeline_err2str(-10));
 		return -10;
 	}
 
 	if((one_arrows == 1) && (pipe_counter > 0))
 	{
-		//free(input_copy);
 		printf("%s\n", msh_pipeline_err2str(-10));
 		return -10;
 	}
 
 	if((two_arrow == 1) && (pipe_counter > 0))
 	{
-		//free(input_copy);
 		printf("%s\n", msh_pipeline_err2str(-10));
 		return -10;
 	}
@@ -144,7 +135,6 @@ redirection_parse(struct msh_command *c, struct msh_pipeline * p)
 		return -10;
 	}
 
-	//pipe_counter, one_arrow, one_arrows, two_arrow, two_arrows = 0; //reset counts for later uses
 	return 0; //SUCCESS
 }
 
@@ -273,14 +263,14 @@ msh_execute(struct msh_pipeline *p)
 		*/
 
 		//check for redirection errors first
-		/*if(redirection_parse(c, p) != 0)
+		if(redirection_parse(c, p) != 0)
 		{
 			msh_pipeline_free(p);
 			exit(EXIT_FAILURE);
 		}
 
-		int redirect_status = redirect(c); //check redirection status of command
-		printf("redirect_status %d\n", redirect_status);*/
+		//int redirect_status = redirect(c); //check redirection status of command
+		//printf("redirect_status %d\n", redirect_status);
 		
 		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
