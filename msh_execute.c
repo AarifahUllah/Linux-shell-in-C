@@ -1,5 +1,4 @@
 #include <msh.h>
-#include <msh_execute.h>
 #include <msh_parse.h>
 #include <msh_parse.c>
 #include <stdio.h>
@@ -10,6 +9,14 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <fcntl.h>
+
+/*
+Problems to work on
+1. & command goes to background with SIGTSTP
+2. Track bg command finishing
+3. cntl-c kills the whole shell
+*/
 
 //foreground process struct
 struct fg_comms{
@@ -83,6 +90,7 @@ msh_pipeline_parse(struct msh_pipeline *p)
 	free(input_copy);
 	return counter;
 }
+
 //redirection error checking
 msh_err_t
 redirection_parse(struct msh_command *c, struct msh_pipeline *p)
@@ -140,9 +148,9 @@ redirection_parse(struct msh_command *c, struct msh_pipeline *p)
 
 //parse command for redirection symbols
 int
-redirect(struct msh_command *c)
+redirect_stat(struct msh_command *c)
 {
-	for(int i = 0; i < c->comm_args_count; i++)
+	for(int i = 0; i < c->comm_args_count - 1; i++)
 	{
 		if(strstr(c->comm_arguments[i], "1>") != NULL) return 1;
 
@@ -153,7 +161,32 @@ redirect(struct msh_command *c)
 		if(strstr(c->comm_arguments[i], "2>>") != NULL) return 4;
 	}
 
-	return 0; //no redirects
+	return 0;
+}
+
+//file to redirect to
+char *
+redirect_file(struct msh_command * c)
+{
+	char * file_name = NULL;
+	for(int i = 0; i < c->comm_args_count - 1; i++)
+	{
+		if(strcmp(c->comm_arguments[i], "1>") == 0)
+		{
+			file_name = c->comm_arguments[i + 1];
+		}
+		if(strcmp(c->comm_arguments[i], "1>>") == 0)
+		{
+			file_name = c->comm_arguments[i + 1];
+			c->comm_arguments[i] = NULL;
+			c->comm_arguments[i + 1] = NULL;
+			c->comm_args_count -= 2;
+			return file_name;
+		}
+		if(strcmp(c->comm_arguments[i], "2>") == 0) file_name = c->comm_arguments[i + 1];
+		if(strcmp(c->comm_arguments[i], "2>>") == 0) file_name = c->comm_arguments[i + 1];
+	}
+	return file_name;
 }
 //end of helper functions
 
@@ -166,8 +199,10 @@ msh_execute(struct msh_pipeline *p)
 	char ** args_list; //arguments list
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
 	pid_t pid;
+	int status;
 	int fds[2]; //set up the pipe
 	int carryover = 0;
+	int output_fd = 0;
 
 	for(int i = 0; i < command_count; i++) //iterate through every command
 	{
@@ -175,8 +210,27 @@ msh_execute(struct msh_pipeline *p)
 		c = msh_pipeline_command(p, i);
 		args_list = msh_command_args(c);
 
+		//check for redirection errors first
+		if(redirection_parse(c, p) != 0)
+		{
+			msh_pipeline_free(p);
+			exit(EXIT_FAILURE);
+		}
+
+		if(msh_pipeline_background(p) == 1) //change arg list for background command
+		{
+			for(int i = 0; i < c->comm_args_count; i++)
+			{
+				if(c->comm_arguments[i + 1] == NULL) //current command is &
+				{
+					c->comm_arguments[i] = c->comm_arguments[i + 1]; //remove & symbol for execvp
+					c->comm_args_count--; //decrement argument count
+				}
+			}
+		}
+
 		//supporting built-in commands:
-		//typing "exit" leaves the shell
+		//typing "exit" leaves the shells
 		if(strcmp(c->command, "exit") == 0) exit(EXIT_SUCCESS);
 
 		//typing cd changes the directory
@@ -246,31 +300,6 @@ msh_execute(struct msh_pipeline *p)
 		{
 			for(int j = 0; j < bg_count; j++) printf("[%d] %s\n", j, bg_commands[j].bg_program);
 		}
-
-		/*
-		REDIRECTION: 1>, 1>>, 2>, 2>>
-		1, for standout 2, for stderr
-		> delete the file, then output to that file
-		>> append to exiting file
-		support these:
-		1. redirection of stdout via a pipe (M1)
-		2. redirection of stdout to a file
-		3. no redirection of stdout - goes to command line
-		4. redirection of stderr to a file
-
-		STDIN = 0   fds[0] = read
-		STDOUT = 1  fds[1] = write
-		*/
-
-		//check for redirection errors first
-		if(redirection_parse(c, p) != 0)
-		{
-			msh_pipeline_free(p);
-			exit(EXIT_FAILURE);
-		}
-
-		//int redirect_status = redirect(c); //check redirection status of command
-		//printf("redirect_status %d\n", redirect_status);
 		
 		//executing commands using pipes & execvp
 		if(i < (command_count - 1))
@@ -281,6 +310,10 @@ msh_execute(struct msh_pipeline *p)
 				exit(EXIT_FAILURE);
 			}
 		}
+
+		int redirect_status = redirect_stat(c); //check redirection status of command
+		char * file_redirect = redirect_file(c); //file redirection
+		//char * file_redirect = NULL; //represents the file to redirect to
 		
 		pid = fork(); //fork process returns 0 or the id of child
 
@@ -291,12 +324,11 @@ msh_execute(struct msh_pipeline *p)
 			exit(EXIT_FAILURE);
 		}
 
-		else if(pid == 0)
+		else if(pid == 0) //child process
 		{
-			if(carryover != 0)
+			if(carryover != 0) //not the first command
 			{
-				dup2(carryover, STDIN_FILENO);
-
+				dup2(carryover, STDIN_FILENO); //read from carryover 
 				close(carryover);
 			}
 
@@ -305,27 +337,135 @@ msh_execute(struct msh_pipeline *p)
 				//DUP write end of pipe into STDOUT
 				//redirect STDOUT to write side of the pipe we just created.
 				dup2(fds[1], STDOUT_FILENO);
-
 				close(fds[1]);
+			}
+
+			/*
+			REDIRECTION: 1>, 1>>, 2>, 2>>
+			1, for standout 2, for stderr
+			> delete the file, then output to that file
+			>> append to exiting file
+			support these:
+			1. redirection of stdout via a pipe (M1)
+			2. redirection of stdout to a file
+			3. no redirection of stdout - goes to command line
+			4. redirection of stderr to a file
+
+			STDIN = 0   fds[0] = read
+			STDOUT = 1  fds[1] = write
+			*/
+			
+			//iterate through the arguments of the command
+			/*for(int i = 0; i < c->comm_args_count - 1; i++)
+			{
+				if(strcmp(c->comm_arguments[i], "1>") == 0)
+				{
+					file_redirect = c->comm_arguments[i + 1]; //the name of the file
+					c->comm_arguments[i] = NULL;
+					c->comm_arguments[i + 1] = NULL; //remove "1> file.txt" from arguments
+					c->comm_args_count -= 2;
+
+					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+					dup2(output_fd, STDOUT_FILENO);
+					close(output_fd);
+				}
+
+				if(strcmp(c->comm_arguments[i], "1>>") == 0)
+				{
+					file_redirect = c->comm_arguments[i + 1];
+					c->comm_arguments[i] = NULL;
+					c->comm_arguments[i + 1] = NULL;
+					c->comm_args_count -= 2;
+
+					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
+					dup2(output_fd, STDOUT_FILENO);
+					close(output_fd);
+				}
+
+				if(strcmp(c->comm_arguments[i], "2>") == 0)
+				{
+					file_redirect = c->comm_arguments[i + 1];
+					c->comm_arguments[i] = NULL;
+					c->comm_arguments[i + 1] = NULL;
+					c->comm_args_count -= 2;
+
+					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+					dup2(output_fd, STDERR_FILENO);
+					close(output_fd);
+				}
+
+				if(strcmp(c->comm_arguments[i], "2>>") == 0)
+				{
+					file_redirect = c->comm_arguments[i + 1];
+					c->comm_arguments[i] = NULL;
+					c->comm_arguments[i + 1] = NULL;
+					c->comm_args_count -= 2;
+
+					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
+					dup2(output_fd, STDERR_FILENO);
+					close(output_fd);
+				}
+			}*/
+
+			//redirect output
+			if(redirect_status == 1) // case: 1>
+			{
+				output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+				dup2(output_fd, STDOUT_FILENO);
+				close(output_fd);
+			}
+
+			if(redirect_status == 2) //case: 1>>
+			{
+				output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
+				dup2(output_fd, STDOUT_FILENO);
+				close(output_fd);
+			}
+
+			if(redirect_status == 3) //case: 2>
+			{
+				output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+				dup2(output_fd, STDERR_FILENO);
+				close(output_fd);
+			}
+
+			if(redirect_status == 4) //case: 2>>
+			{
+				output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
+				dup2(output_fd, STDERR_FILENO);
+				close(output_fd);
 			}
 
 			if(i < (command_count - 1)) close(fds[0]);
 
+
 			execvp(program, args_list); //execute program
+			perror("msh_execute: execvp"); //execvp doesn't work
+			exit(EXIT_FAILURE);
 		}
 		else //Parent process has child's pid
 		{
+			if(carryover != 0) close(carryover);
+			
+			if(fds[1] != 0) close(fds[1]);
+
+			if(i < (command_count - 1)) close(fds[1]);
+
+			carryover = fds[0]; //reassign carryover
+
 			//foreground process
-			if(msh_pipeline_background(p) == 0)
+			if(msh_pipeline_background(p) == 0 && c->command_last)
 			{
 				//set global to child process's id
 				printf("adding pid: %d\n", pid);
 				fg_add(pid, program);
+				waitpid(pid, &status, WUNTRACED);
 			}
 
 			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
 			{
+				//send process to background with kill
 				//memset first background
 				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_comms) * MSH_MAXBACKGROUND);
 
@@ -344,21 +484,14 @@ msh_execute(struct msh_pipeline *p)
 					}
 				}
 			}
-
-			if(carryover != 0) close(carryover);
-			
-			if(fds[1] != 0) close(fds[1]);
-
-			if(i < (command_count - 1)) close(fds[1]);
-
-			carryover = fds[0]; //reassign carryover
 		}		
 	} //outside for-loop
+	
 	//wait for all the commands except for background commands
-	for(int i = 0; i < command_count; i++)
+	/*for(int i = 0; i < command_count; i++)
 	{
 		if(msh_pipeline_background(p) == 0) wait(NULL);
-	}
+	}*/
 
 	msh_pipeline_free(p);
 	return;

@@ -18,7 +18,7 @@ struct msh_command{
 struct msh_pipeline{
 	struct msh_command * pipeline_commands[MSH_MAXCMNDS];
 	char * pipe; 
-	bool background_pipe;
+	int background_pipe;
 	int pipeline_comm_count;//how many commands in a pipe so far
 };
 
@@ -166,13 +166,29 @@ msh_sequence_parse(char *str, struct msh_sequence *seq)
 		seq->sequence_pipelines[index]->pipe = strdup(token); //put token into sequence
 
 		//check whether to run the pipeline in the background
-		if(token[strlen(token) - 2] == '&')
+		for(size_t i = 0; i < strlen(token); i++)
 		{
-			seq->sequence_pipelines[index]->background_pipe = true;
-		}
-		else
-		{
-			seq->sequence_pipelines[index]->background_pipe = false;
+			int and_counter = 0;
+			if(token[i] == '&')
+			{
+				and_counter++;
+
+				//cannot have more arguments after &
+				if((token[i + 1] != '\0'))
+				{
+					printf("%s\n", msh_pipeline_err2str(-3));
+					return -3;
+				}
+			}
+
+			if(and_counter > 1)
+			{
+				printf("%s\n", msh_pipeline_err2str(-3));
+				return -3;
+			}
+			
+			if(and_counter == 0) seq->sequence_pipelines[index]->background_pipe = 0;
+			else seq->sequence_pipelines[index]->background_pipe = 1;
 		}
 
 		seq->sequence_pipelines[index]->pipeline_comm_count = 1;
@@ -335,30 +351,19 @@ msh_pipeline_command(struct msh_pipeline *p, size_t nth)
 	return p->pipeline_commands[nth];
 }
 
-//returns 1 if the pipeline should be run in the background
-//returns 0 if not
+//returns 1 if the pipeline should be run in the background returns 0 if not
 int
 msh_pipeline_background(struct msh_pipeline *p)
 {
-	if(p->background_pipe == true)
-	{
-		return 1;
-	}
-
+	if(p->background_pipe == 1) return 1;
 	return 0;
 }
 
-//returns 1 if the command is the final
-//command or returns 0 if not
+//returns 1 if the command is the final command or returns 0 if not
 int
 msh_command_final(struct msh_command *c)
 {
-	//the last command in pipeline
-	if (c->command_last == true){
-		return 1;
-	}
-
-	//c is not the last command
+	if (c->command_last == true) return 1;
 	return 0;
 }
 
