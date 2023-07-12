@@ -10,14 +10,13 @@
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
-
 /*
-Problems to work on
-1. & command goes to background with SIGTSTP
-2. Track bg command finishing
-3. cntl-c kills the whole shell
+current problems
+1. cntl-c kills whole shell
+2. cntl-z makes whole shell suspend I think
+3. "jobs" doesn't find new array of background commands
+4. valgrind errors for M1
 */
-
 //foreground process struct
 struct fg_comms{
 	pid_t fg_pid;
@@ -152,13 +151,13 @@ redirect_stat(struct msh_command *c)
 {
 	for(int i = 0; i < c->comm_args_count - 1; i++)
 	{
-		if(strstr(c->comm_arguments[i], "1>") != NULL) return 1;
+		if(strcmp(c->comm_arguments[i], "1>") == 0) return 1;
 
-		if(strstr(c->comm_arguments[i], "1>>") != NULL) return 2;
+		if(strcmp(c->comm_arguments[i], "1>>") == 0) return 2;
 
-		if(strstr(c->comm_arguments[i], "2>") != NULL) return 3;
+		if(strcmp(c->comm_arguments[i], "2>") == 0) return 3;
 
-		if(strstr(c->comm_arguments[i], "2>>") != NULL) return 4;
+		if(strcmp(c->comm_arguments[i], "2>>") == 0) return 4;
 	}
 
 	return 0;
@@ -171,11 +170,10 @@ redirect_file(struct msh_command * c)
 	char * file_name = NULL;
 	for(int i = 0; i < c->comm_args_count - 1; i++)
 	{
-		if(strcmp(c->comm_arguments[i], "1>") == 0)
-		{
-			file_name = c->comm_arguments[i + 1];
-		}
-		if(strcmp(c->comm_arguments[i], "1>>") == 0)
+		if( (strcmp(c->comm_arguments[i], "1>>") == 0) ||
+		    (strcmp(c->comm_arguments[i], "1>") == 0)  ||
+			(strcmp(c->comm_arguments[i], "2>") == 0)  ||
+			(strcmp(c->comm_arguments[i], "2>>") == 0))
 		{
 			file_name = c->comm_arguments[i + 1];
 			c->comm_arguments[i] = NULL;
@@ -183,8 +181,6 @@ redirect_file(struct msh_command * c)
 			c->comm_args_count -= 2;
 			return file_name;
 		}
-		if(strcmp(c->comm_arguments[i], "2>") == 0) file_name = c->comm_arguments[i + 1];
-		if(strcmp(c->comm_arguments[i], "2>>") == 0) file_name = c->comm_arguments[i + 1];
 	}
 	return file_name;
 }
@@ -199,7 +195,7 @@ msh_execute(struct msh_pipeline *p)
 	char ** args_list; //arguments list
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
 	pid_t pid;
-	int status;
+	//int status;
 	int fds[2]; //set up the pipe
 	int carryover = 0;
 	int output_fd = 0;
@@ -277,28 +273,26 @@ msh_execute(struct msh_pipeline *p)
 		{
 			char * ptr;
 			int index = (int) strtol(c->comm_arguments[1], &ptr, 10);
-			printf("index: %d\n", index); //check the casting
-			//check if a command w/ index given is in background array
-			if(bg_commands[index].bg_pid != 0)
+			if(bg_commands[index].bg_pid != 0) //check if a command w/ index given is in background array
 			{
 				kill(bg_commands[index].bg_pid, SIGCONT);
 				fg_add(bg_commands[index].bg_pid, bg_commands[index].bg_program);//add to foreground command array using fg_add function
 				bg_commands[index].bg_pid = 0; //remove background command from array
 				bg_count--;//decrement bg_count
+				exit(EXIT_SUCCESS);
 			}
-			else printf("msh: fg: %d%s: no such job\n", index, ptr); ///background command does not exit w/ given index
-		}
-
-		//do we need bg?
-		if(strcmp(c->command, "bg") == 0)
-		{
-			//check if command is already in background
+			else
+			{
+				printf("msh: fg: %d%s: no such job\n", index, ptr); ///background command does not exit w/ given index
+				exit(EXIT_SUCCESS);
+			}
 		}
 
 		//jobs prints out list of bg commands like this: [0] sleep 10
 		if(strcmp(c->command, "jobs") == 0)
 		{
 			for(int j = 0; j < bg_count; j++) printf("[%d] %s\n", j, bg_commands[j].bg_program);
+			exit(EXIT_SUCCESS);
 		}
 		
 		//executing commands using pipes & execvp
@@ -310,12 +304,10 @@ msh_execute(struct msh_pipeline *p)
 				exit(EXIT_FAILURE);
 			}
 		}
-
-		int redirect_status = redirect_stat(c); //check redirection status of command
-		char * file_redirect = redirect_file(c); //file redirection
-		//char * file_redirect = NULL; //represents the file to redirect to
 		
 		pid = fork(); //fork process returns 0 or the id of child
+		int redirect_status = redirect_stat(c); //check redirection status of command
+	    char * file_redirect = redirect_file(c); //file redirection
 
 		if(pid == -1)
 		{
@@ -334,10 +326,8 @@ msh_execute(struct msh_pipeline *p)
 
 			if(fds[1] != 0)
 			{
-				//DUP write end of pipe into STDOUT
-				//redirect STDOUT to write side of the pipe we just created.
-				dup2(fds[1], STDOUT_FILENO);
-				close(fds[1]);
+				dup2(fds[1], STDOUT_FILENO); //DUP write end of pipe into STDOUT
+				close(fds[1]); //redirect STDOUT to write side of the pipe we just created.
 			}
 
 			/*
@@ -354,58 +344,6 @@ msh_execute(struct msh_pipeline *p)
 			STDIN = 0   fds[0] = read
 			STDOUT = 1  fds[1] = write
 			*/
-			
-			//iterate through the arguments of the command
-			/*for(int i = 0; i < c->comm_args_count - 1; i++)
-			{
-				if(strcmp(c->comm_arguments[i], "1>") == 0)
-				{
-					file_redirect = c->comm_arguments[i + 1]; //the name of the file
-					c->comm_arguments[i] = NULL;
-					c->comm_arguments[i + 1] = NULL; //remove "1> file.txt" from arguments
-					c->comm_args_count -= 2;
-
-					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-					dup2(output_fd, STDOUT_FILENO);
-					close(output_fd);
-				}
-
-				if(strcmp(c->comm_arguments[i], "1>>") == 0)
-				{
-					file_redirect = c->comm_arguments[i + 1];
-					c->comm_arguments[i] = NULL;
-					c->comm_arguments[i + 1] = NULL;
-					c->comm_args_count -= 2;
-
-					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
-					dup2(output_fd, STDOUT_FILENO);
-					close(output_fd);
-				}
-
-				if(strcmp(c->comm_arguments[i], "2>") == 0)
-				{
-					file_redirect = c->comm_arguments[i + 1];
-					c->comm_arguments[i] = NULL;
-					c->comm_arguments[i + 1] = NULL;
-					c->comm_args_count -= 2;
-
-					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-					dup2(output_fd, STDERR_FILENO);
-					close(output_fd);
-				}
-
-				if(strcmp(c->comm_arguments[i], "2>>") == 0)
-				{
-					file_redirect = c->comm_arguments[i + 1];
-					c->comm_arguments[i] = NULL;
-					c->comm_arguments[i + 1] = NULL;
-					c->comm_args_count -= 2;
-
-					output_fd = open(file_redirect, O_WRONLY | O_CREAT | O_APPEND, 0666);
-					dup2(output_fd, STDERR_FILENO);
-					close(output_fd);
-				}
-			}*/
 
 			//redirect output
 			if(redirect_status == 1) // case: 1>
@@ -438,7 +376,6 @@ msh_execute(struct msh_pipeline *p)
 
 			if(i < (command_count - 1)) close(fds[0]);
 
-
 			execvp(program, args_list); //execute program
 			perror("msh_execute: execvp"); //execvp doesn't work
 			exit(EXIT_FAILURE);
@@ -456,30 +393,30 @@ msh_execute(struct msh_pipeline *p)
 			//foreground process
 			if(msh_pipeline_background(p) == 0 && c->command_last)
 			{
-				//set global to child process's id
-				printf("adding pid: %d\n", pid);
+				//printf("adding pid: %d\n", pid);
 				fg_add(pid, program);
-				waitpid(pid, &status, WUNTRACED);
+				//waitpid(pid, &status, WUNTRACED);
+				//wait(NULL);
 			}
 
 			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
 			{
-				//send process to background with kill
-				//memset first background
-				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_comms) * MSH_MAXBACKGROUND);
-
 				//check that MSH_MAXBACKGROUND limit is not reached
 				if(bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
 
-				for(int i = 0; i < bg_count; i++)
+				//memset first background
+				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_comms) * MSH_MAXBACKGROUND);
+				for(int i = 0; i < MSH_MAXBACKGROUND; i++)
 				{
 					if(bg_commands[i].bg_pid == 0)
 					{
 						bg_commands[i].bg_pid = pid; // add the command to array of background commands
-						bg_commands[i].bg_program = program; //need to fix
+						bg_commands[i].bg_program = program;
+						printf("bg program: %s\n", bg_commands[i].bg_program);
 						bg_count++; //incrememnt background command count
 						printf("[%d] %d\n", i, pid); //print job order and process id
+						kill(bg_commands[i].bg_pid, SIGTSTP); //send process to background w/ SIGTSTP
 						break;
 					}
 				}
@@ -488,10 +425,10 @@ msh_execute(struct msh_pipeline *p)
 	} //outside for-loop
 	
 	//wait for all the commands except for background commands
-	/*for(int i = 0; i < command_count; i++)
+	for(int i = 0; i < command_count; i++)
 	{
 		if(msh_pipeline_background(p) == 0) wait(NULL);
-	}*/
+	}
 
 	msh_pipeline_free(p);
 	return;
@@ -523,6 +460,7 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 			printf("%d: Cntl-Z pressed. We've been asked to suspend. Go to background\n", getpid());
 			fflush(stdout);
 			bg_count++;//increment bg count
+			printf("457: bg count: %d\n", bg_count);
 			break;
 		}
 		//terminate foreground processes with cntl-c
