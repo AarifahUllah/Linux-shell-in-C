@@ -27,6 +27,7 @@ struct fg_comms{
 struct bg_comms {
 	pid_t bg_pid; //the background program's pid, needed for fg or cntl-c
 	char * bg_program; //the name of the background program, needed when using jobs
+	char * bg_args; //the arguments that go with the program
 };
 
 //initialize fg and bg structs as global variables
@@ -395,15 +396,12 @@ msh_execute(struct msh_pipeline *p)
 			{
 				//printf("adding pid: %d\n", pid);
 				fg_add(pid, program);
-				//waitpid(pid, &status, WUNTRACED);
-				//wait(NULL);
 			}
 
 			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
 			{
-				//check that MSH_MAXBACKGROUND limit is not reached
-				if(bg_count == MSH_MAXBACKGROUND) perror("max background limit reached");
+				if(bg_count == MSH_MAXBACKGROUND) perror("max background limit reached"); //check MSH_MAXBACKGROUND limit is not reached
 
 				//memset first background
 				if(bg_count == 0) memset(bg_commands, 0, sizeof(struct bg_comms) * MSH_MAXBACKGROUND);
@@ -413,10 +411,9 @@ msh_execute(struct msh_pipeline *p)
 					{
 						bg_commands[i].bg_pid = pid; // add the command to array of background commands
 						bg_commands[i].bg_program = program;
-						printf("bg program: %s\n", bg_commands[i].bg_program);
+						bg_commands[i].bg_args = c->comm_arguments[1];
 						bg_count++; //incrememnt background command count
-						printf("[%d] %d\n", i, pid); //print job order and process id
-						kill(bg_commands[i].bg_pid, SIGTSTP); //send process to background w/ SIGTSTP
+						printf("[%d] %s %s\n", i, program, c->comm_arguments[1]); //print job order, command, & args
 						break;
 					}
 				}
@@ -424,10 +421,9 @@ msh_execute(struct msh_pipeline *p)
 		}		
 	} //outside for-loop
 	
-	//wait for all the commands except for background commands
-	for(int i = 0; i < command_count; i++)
+	for(int i = 0; i < command_count; i++) //wait for commands
 	{
-		if(msh_pipeline_background(p) == 0) wait(NULL);
+		if(msh_pipeline_background(p) == 0) wait(NULL); //except for background commands
 	}
 
 	msh_pipeline_free(p);
@@ -472,6 +468,9 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 		}
 		//run a background command to foreground - user typed 'fg'
     	case SIGCONT: {
+			printf("Move command from background\n");
+			fflush(stdout);
+			wait(NULL);
 			break;
 		}
 	}
