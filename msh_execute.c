@@ -10,13 +10,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
-/*
-current problems
-1. cntl-c kills whole shell
-2. cntl-z makes whole shell suspend I think
-3. "jobs" doesn't find new array of background commands
-4. valgrind errors for M1
-*/
+
 //foreground process struct
 struct fg_comms{
 	pid_t fg_pid;
@@ -34,7 +28,7 @@ struct bg_comms {
 struct fg_comms fg_commands[MSH_MAXBACKGROUND];
 struct bg_comms bg_commands[MSH_MAXBACKGROUND];
 int bg_count; //current count of background commands
-int fg_count; //current count of foreground commands (unsure if needed)
+int fg_count;
 
 
 //Helper functions:
@@ -138,7 +132,6 @@ redirection_parse(struct msh_command *c, struct msh_pipeline *p)
 
 	if((two_arrows == 1) && (pipe_counter > 0))
 	{
-		//free(input_copy);
 		printf("%s\n", msh_pipeline_err2str(-10));
 		return -10;
 	}
@@ -196,10 +189,10 @@ msh_execute(struct msh_pipeline *p)
 	char ** args_list; //arguments list
 	int command_count = msh_pipeline_parse(p);//determine how many commands there are
 	pid_t pid;
-	//int status;
 	int fds[2]; //set up the pipe
 	int carryover = 0;
 	int output_fd = 0;
+	fg_count = 0;
 
 	for(int i = 0; i < command_count; i++) //iterate through every command
 	{
@@ -227,8 +220,7 @@ msh_execute(struct msh_pipeline *p)
 		}
 
 		//supporting built-in commands:
-		//typing "exit" leaves the shells
-		if(strcmp(c->command, "exit") == 0) exit(EXIT_SUCCESS);
+		if(strcmp(c->command, "exit") == 0) exit(EXIT_SUCCESS); //typing "exit" leaves the shells
 
 		//typing cd changes the directory
 		if(strcmp(c->command, "cd") == 0)
@@ -280,7 +272,7 @@ msh_execute(struct msh_pipeline *p)
 				fg_add(bg_commands[index].bg_pid, bg_commands[index].bg_program);//add to foreground command array using fg_add function
 				bg_commands[index].bg_pid = 0; //remove background command from array
 				bg_count--;//decrement bg_count
-				exit(EXIT_SUCCESS);
+				break;
 			}
 			else
 			{
@@ -391,12 +383,7 @@ msh_execute(struct msh_pipeline *p)
 
 			carryover = fds[0]; //reassign carryover
 
-			//foreground process
-			if(msh_pipeline_background(p) == 0 && c->command_last)
-			{
-				//printf("adding pid: %d\n", pid);
-				fg_add(pid, program);
-			}
+			if(msh_pipeline_background(p) == 0) fg_add(pid, program); //foreground process
 
 			//add background process to array that can be later found by typing jobs
 			if(msh_pipeline_background(p) == 1)
@@ -423,7 +410,8 @@ msh_execute(struct msh_pipeline *p)
 	
 	for(int i = 0; i < command_count; i++) //wait for commands
 	{
-		if(msh_pipeline_background(p) == 0) wait(NULL); //except for background commands
+		if(msh_pipeline_background(p) == 0) wait(NULL); //except for the background commands
+		fg_count = 0;
 	}
 
 	msh_pipeline_free(p);
@@ -433,7 +421,6 @@ msh_execute(struct msh_pipeline *p)
 void
 sig_handler(int signal_number, siginfo_t *info, void *context)
 {
-	//printf("sig handler was called:%d\n", signal_number);
 	(void) info;
 	(void) context;
 	switch(signal_number){
@@ -453,24 +440,21 @@ sig_handler(int signal_number, siginfo_t *info, void *context)
 		//foreground pipeline is suspended, able to receive input in shell again
 		//user typed 'cntl-z', 'bg'
 		case SIGTSTP: {
-			printf("%d: Cntl-Z pressed. We've been asked to suspend. Go to background\n", getpid());
+			printf("\n%d: Cntl-Z pressed. We've been asked to suspend. Go to background\n", getpid());
 			fflush(stdout);
 			bg_count++;//increment bg count
-			printf("457: bg count: %d\n", bg_count);
 			break;
 		}
 		//terminate foreground processes with cntl-c
 		case SIGINT: {
-			printf("%d:Cntl-C pressed. Terminate foreground process\n", getpid());
+			printf("\n%d: Cntl-C pressed. Terminate foreground process\n", getpid());
 			fflush(stdout);
 			fg_kill();
 			break;
 		}
-		//run a background command to foreground - user typed 'fg'
+		//run background command to foreground - user typed 'fg'
     	case SIGCONT: {
-			printf("Move command from background\n");
 			fflush(stdout);
-			wait(NULL);
 			break;
 		}
 	}
@@ -497,7 +481,6 @@ setup_signal(int signo, void (*fn)(int, siginfo_t *, void *))
 	}
 }
 
-//set up signal handlers here
 void
 msh_init(void)
 {
@@ -506,6 +489,5 @@ msh_init(void)
 	setup_signal(SIGTSTP, sig_handler);
 	setup_signal(SIGINT, sig_handler);
 	setup_signal(SIGCONT, sig_handler);
-
 	return;
 }
